@@ -30,6 +30,11 @@ const routes = [
     name: 'Cuti',
     component: () => import('../views/cuti.vue'),
     meta: { requiresAuth: true }
+  },
+  // Tambahkan ini: Redirect URL yang tidak dikenal kembali ke Login / Dashboard
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: { name: 'Login' }
   }
 ]
 
@@ -43,10 +48,10 @@ router.beforeEach((to, from, next) => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
   
   if (to.meta.requiresAuth && !isAuthenticated) {
-    // Redirect to login if not authenticated
+    // Redirect ke login jika mencoba akses halaman terproteksi tapi belum login
     next({ name: 'Login' })
   } else if (to.name === 'Login' && isAuthenticated) {
-    // Redirect to dashboard if already logged in
+    // Redirect ke dashboard jika sudah terautentikasi tapi membuka / login
     next({ name: 'Dashboard' })
   } else {
     next()
@@ -54,4 +59,3 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
-

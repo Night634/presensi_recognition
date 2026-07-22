@@ -11,28 +11,51 @@ const rememberMe = ref(false)
 const errorMsg = ref('')
 const isLoading = ref(false)
 
-const handleSubmit = () => {
+const handleSubmit = async () => {
   errorMsg.value = ''
   
   if (!username.value || !password.value) {
-    errorMsg.value = 'Username dan password harus diisi!'
+    errorMsg.value = 'Email/Username dan password harus diisi!'
     return
   }
 
   isLoading.value = true
 
-  // Simulasi proses login
-  setTimeout(() => {
-    // Hardcoded credentials
-    if (username.value === 'admin' && password.value === 'admin123') {
+  try {
+    // Tembak endpoint login ke Laravel Backend
+    const response = await fetch('http://127.0.0.1:8000/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        email: username.value,
+        nip: username.value, // Mengirim inputan sebagai Email maupun NIP
+        password: password.value
+      })
+    })
+
+    const data = await response.json()
+
+    if (response.ok && data.status === 'success') {
+      // 1. Simpan Token dan Data User ke LocalStorage (Sesuai struktur response 'data.data')
       localStorage.setItem('isAuthenticated', 'true')
-      localStorage.setItem('username', username.value)
+      localStorage.setItem('token', data.data.token)
+      localStorage.setItem('user', JSON.stringify(data.data.user))
+
+      // 2. Arahkan ke Dashboard Admin
       router.push({ name: 'Dashboard' })
     } else {
-      errorMsg.value = 'Username atau password salah!'
-      isLoading.value = false
+      // Tampilkan error dari backend Laravel
+      errorMsg.value = data.message || 'Email atau password salah!'
     }
-  }, 800)
+  } catch (error) {
+    console.error('Error Login:', error)
+    errorMsg.value = 'Gagal terhubung ke server backend!'
+  } finally {
+    isLoading.value = false
+  }
 }
 </script>
 
@@ -59,7 +82,7 @@ const handleSubmit = () => {
 
       <!-- Login Card Component -->
       <div class="relative z-20 w-full max-w-md bg-white rounded-2xl p-8 shadow-2xl border border-blue-100 mx-4">
-        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Login</h2>
+        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Login Admin</h2>
         
         <!-- Error Message -->
         <div 
@@ -71,11 +94,11 @@ const handleSubmit = () => {
 
         <form @submit.prevent="handleSubmit" class="space-y-4">
           <div>
-            <label class="block text-sm font-semibold text-gray-700 mb-1">Username</label>
+            <label class="block text-sm font-semibold text-gray-700 mb-1">Email / Username</label>
             <input
               v-model="username"
               type="text"
-              placeholder="Input your username"
+              placeholder="Masukkan email/username Anda"
               class="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-700 placeholder-gray-400 transition"
             />
           </div>
@@ -85,7 +108,7 @@ const handleSubmit = () => {
             <input
               v-model="password"
               type="password"
-              placeholder="Input your password"
+              placeholder="Masukkan password Anda"
               class="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-700 placeholder-gray-400 transition"
             />
           </div>
@@ -114,12 +137,7 @@ const handleSubmit = () => {
             {{ isLoading ? 'Memproses...' : 'Masuk' }}
           </button>
         </form>
-
-        <p class="text-xs text-gray-400 text-center mt-6 border-t border-gray-100 pt-4">
-          Demo: admin / admin123
-        </p>
       </div>
     </div>
   </div>
 </template>
-

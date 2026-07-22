@@ -94,7 +94,7 @@
           <p class="text-xs font-medium text-gray-500 mb-1">Hello, {{ username }}</p>
           <h1 class="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Welcome to Dashboard</h1>
           <p class="text-xs sm:text-sm text-gray-600 max-w-3xl leading-relaxed">
-            Pengelolaan, Pemantauan dan Rekapitulasi Presensi pegawai Kementrian Sekretariat Negara
+            Pengelolaan, Pemantauan dan Rekapitulasi Presensi pegawai Kementerian Sekretariat Negara
           </p>
         </div>
 
@@ -122,7 +122,9 @@
         <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-gray-100">
           <h2 class="text-base font-bold text-gray-900 mb-4">Aktivitas Terakhir</h2>
           
-          <div class="space-y-3">
+          <div v-if="isLoadingActivities" class="text-xs text-gray-400">Memuat data aktivitas...</div>
+          <div v-else-if="activities.length === 0" class="text-xs text-gray-400">Belum ada aktivitas hari ini.</div>
+          <div v-else class="space-y-3">
             <div 
               v-for="act in activities" 
               :key="act.id" 
@@ -135,6 +137,7 @@
         </div>
       </main>
     </div>
+
     <!-- DRAWER NOTIFIKASI -->
     <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
       <div class="flex items-center justify-between pb-3 border-b border-gray-100">
@@ -188,44 +191,88 @@ import {
 
 const router = useRouter()
 
+// State Mobile Menu & UI
+const isSidebarOpen = ref(false)
+const isNotifOpen = ref(false)
+const activeMenu = ref('Dashboard')
+const isLoadingActivities = ref(true)
+
+// Ambil Nama User dari LocalStorage
+const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+const username = ref(storedUser.name || localStorage.getItem('username') || 'Admin')
+
+// Reactive Stat Cards Data
+const statsCards = ref([
+  { title: "Akun Yang Terdaftar", value: 0, icon: Users },
+  { title: "Total Pegawai Terlambat", value: 0, icon: Clock },
+  { title: "Persetujuan Cuti/Izin/Dinas", value: 0, icon: UserCheck },
+  { title: "Total Pegawai Cuti/Izin/Dinas", value: 0, icon: FileSignature },
+])
+
+// Reactive Activities
+const activities = ref([])
+
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+
+// Fungsi Fetch Data dari Laravel Backend (Menembak Endpoint /api/dashboard-stats)
+const fetchDashboardData = async () => {
+  const token = localStorage.getItem('token')
+
+  // Buat header dinamis (mengirim Token jika ada)
+  const headers = {
+    'Accept': 'application/json'
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  try {
+    const response = await fetch('http://127.0.0.1:8000/api/dashboard-stats', { headers })
+
+    const res = await response.json()
+    console.log('HASIL RESPONSE DARI LARAVEL:', res)
+
+    if (response.ok && res.status === 'success') {
+      const d = res.data
+
+      // Update Angka Card secara Dinamis dari Database
+      statsCards.value[0].value = d.total_pegawai ?? 0
+      statsCards.value[1].value = d.total_terlambat ?? 0
+      statsCards.value[2].value = d.pending_cuti ?? 0
+      statsCards.value[3].value = d.approved_cuti ?? 0
+
+      // Update Aktivitas Terakhir dari DB
+      activities.value = d.activities || []
+    } else {
+      console.warn('Response API gagal status:', response.status, res)
+    }
+  } catch (err) {
+    console.error('Gagal mengambil data dashboard:', err)
+  } finally {
+    isLoadingActivities.value = false
+  }
+}
+
 onMounted(() => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
   if (!isAuthenticated) {
     router.push({ name: 'Login' })
+  } else {
+    fetchDashboardData()
   }
 })
-
-// State Mobile Menu
-const isSidebarOpen = ref(false)
-const isNotifOpen = ref(false)
-const toggleSidebar = () => {
-  isSidebarOpen.value = !isSidebarOpen.value
-}
 
 const notifications = ref([
   { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
   { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
   { id: 3, name: 'Atchallah', action: 'Mengajukan Cuti', time: '15 min', unread: false },
-  { id: 4, name: 'Putra', action: 'Mengajukan Cuti', time: '16 min', unread: false },
-  { id: 5, name: 'thejoeswanson', action: 'High fived your workout', time: '18 min', unread: true },
 ])
 
 const clearAllNotif = () => {
   notifications.value = []
 }
-
-// Username dari localStorage
-const username = ref(localStorage.getItem('username') || 'Admin')
-
-// Data Statis
-const currentDate = new Date().toLocaleDateString('id-ID', {
-  weekday: 'long',
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric'
-})
-
-const activeMenu = ref('Dashboard')
 
 const navItems = [
   { name: 'Dashboard', icon: LayoutGrid, route: 'Dashboard' },
@@ -240,23 +287,12 @@ const navigateTo = (item) => {
   router.push({ name: item.route })
 }
 
-const statsCards = [
-  { title: "Akun Yang Terdaftar", value: 128, icon: Users },
-  { title: "Total Pegawai Terlambat", value: "12", icon: Clock },
-  { title: "Persetujuan Cuti/Izin/Dinas", value: "10", icon: UserCheck },
-  { title: "Total Pegawai Cuti/Izin/Dinas", value: "20", icon: FileSignature },
-]
-
-const activities = [
-  { id: 1, color: "bg-emerald-600", content: '<strong>Menyetujui Perizinan</strong> Ramzy Atchallah Putra' },
-  { id: 2, color: "bg-red-500", content: '<strong>Menolak</strong> Ramzy Atchallah Putra' },
-  { id: 3, color: "bg-amber-400", content: 'Ramzy Atchallah Putra <strong>Mengajukan Permohonan untuk Cuti</strong>' },
-]
-
-// Fungsi Logout
+// Fungsi Logout Bersih
 const handleLogout = () => {
   localStorage.removeItem('isAuthenticated')
   localStorage.removeItem('username')
+  localStorage.removeItem('user')
+  localStorage.removeItem('token')
   router.push({ name: 'Login' })
 }
 </script>

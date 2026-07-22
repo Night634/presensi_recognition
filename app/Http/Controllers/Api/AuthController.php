@@ -12,17 +12,25 @@ class AuthController extends Controller
     // API LOGIN PEGAWAI / ADMIN
     public function login(Request $request)
     {
+        // Validasi: Boleh terima 'nip' (Mobile) ATAU 'email' (Web Admin)
         $request->validate([
-            'nip' => 'required',
+            'nip'      => 'nullable|required_without:email',
+            'email'    => 'nullable|required_without:nip',
             'password' => 'required',
         ]);
 
-        $user = User::where('nip', $request->nip)->first();
+        // Ambil nilai identifier (NIP atau Email)
+        $identifier = $request->nip ?? $request->email;
+
+        // Cari user berdasarkan NIP ATAU Email
+        $user = User::where('nip', $identifier)
+                    ->orWhere('email', $identifier)
+                    ->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'NIP atau Password salah.',
+                'message' => 'NIP/Email atau Password salah.',
             ], 401);
         }
 

@@ -21,16 +21,47 @@ import {
 
 const router = useRouter()
 
+// State Sidebar Mobile & Notifikasi
+const isSidebarOpen = ref(false)
+const isNotifOpen = ref(false)
+
+// State Loading & Data Pegawai dari API
+const isLoading = ref(true)
+const pegawaiList = ref([])
+
+// Fungsi Fetch Data Pegawai dari API Backend Laravel
+const fetchPegawai = async () => {
+  isLoading.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const headers = { 'Accept': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    console.log('Memanggil API Pegawai...')
+    const response = await fetch('http://127.0.0.1:8000/api/pegawai', { headers })
+    
+    if (response.ok) {
+      const res = await response.json()
+      console.log('DATA PEGAWAI TERIMA:', res)
+      pegawaiList.value = res.data || []
+    } else {
+      console.warn('API Pegawai gagal status:', response.status)
+    }
+  } catch (error) {
+    console.error('Gagal mengambil data pegawai:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 onMounted(() => {
   const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
   if (!isAuthenticated) {
     router.push({ name: 'Login' })
+  } else {
+    fetchPegawai()
   }
 })
-
-// State Sidebar Mobile
-const isSidebarOpen = ref(false)
-const isNotifOpen = ref(false)
 
 // State Modal & Form Tambah Pegawai
 const isModalOpen = ref(false)
@@ -39,6 +70,7 @@ const formPegawai = ref({
   nama: '',
   email: '',
   posisi: '',
+  password: 'password123', // Default password untuk akun baru
   foto: null
 })
 const kameraAktif = ref(false)
@@ -54,20 +86,10 @@ const currentPage = ref(1)
 const pageSize = ref(4)
 const activeMenu = ref('Pegawai')
 
-const pegawaiList = ref([
-  { id: 1, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 2, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 3, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 4, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 5, nama: 'Ramzy Atchallah Putra', nip: '315720834', posisi: 'Staff', dataWajah: 'Image.jpg' },
-])
-
 const notifications = ref([
   { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
   { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
   { id: 3, name: 'Atchallah', action: 'Mengajukan Cuti', time: '15 min', unread: false },
-  { id: 4, name: 'Putra', action: 'Mengajukan Cuti', time: '16 min', unread: false },
-  { id: 5, name: 'thejoeswanson', action: 'High fived your workout', time: '18 min', unread: true },
 ])
 
 const clearAllNotif = () => {
@@ -146,6 +168,7 @@ const resetForm = () => {
     nama: '',
     email: '',
     posisi: '',
+    password: 'password123',
     foto: null
   }
   fotoPreview.value = null
@@ -158,11 +181,14 @@ onUnmounted(() => {
 
 // Filter data pegawai berdasarkan pencarian
 const filteredPegawai = computed(() => {
-  return pegawaiList.value.filter(p => 
-    p.nama.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    p.nip.includes(searchQuery.value) ||
-    p.posisi.toLowerCase().includes(searchQuery.value.toLowerCase())
-  )
+  return pegawaiList.value.filter(p => {
+    const nama = p.name ? p.name.toLowerCase() : ''
+    const nip = p.nip ? p.nip.toString() : ''
+    const posisi = p.jabatan ? p.jabatan.toLowerCase() : ''
+    const query = searchQuery.value.toLowerCase()
+
+    return nama.includes(query) || nip.includes(query) || posisi.includes(query)
+  })
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredPegawai.value.length / pageSize.value)))
@@ -199,7 +225,7 @@ const navigateTo = (item) => {
   router.push({ name: item.route })
 }
 
-// Actions
+// Actions Modal & API Operations
 const handleOpenModal = () => {
   resetForm()
   isModalOpen.value = true
@@ -210,26 +236,70 @@ const handleCloseModal = () => {
   stopCamera()
 }
 
-const handleTambahData = () => {
-  if (formPegawai.value.nama && formPegawai.value.nip) {
-    pegawaiList.value.push({
-      id: pegawaiList.value.length + 1,
-      nama: formPegawai.value.nama,
-      nip: formPegawai.value.nip,
-      posisi: formPegawai.value.posisi,
-      dataWajah: 'Image.jpg'
+// Tambah Pegawai via API Laravel
+const handleTambahData = async () => {
+  if (!formPegawai.value.nama || !formPegawai.value.nip) return
+
+  try {
+    const token = localStorage.getItem('token')
+    const headers = { 
+      'Content-Type': 'application/json',
+      'Accept': 'application/json' 
+    }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const response = await fetch('http://127.0.0.1:8000/api/pegawai', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        nip: formPegawai.value.nip,
+        name: formPegawai.value.nama,
+        email: formPegawai.value.email,
+        jabatan: formPegawai.value.posisi || 'Staff',
+        password: formPegawai.value.password
+      })
     })
-    handleCloseModal()
+
+    if (response.ok) {
+      await fetchPegawai() // Reload data dari database
+      handleCloseModal()
+    } else {
+      const errRes = await response.json()
+      alert('Gagal menambah data: ' + (errRes.message || 'Error server'))
+    }
+  } catch (error) {
+    console.error('Gagal menambah data pegawai:', error)
   }
 }
 
-const handleDelete = (id) => {
-  pegawaiList.value = pegawaiList.value.filter(p => p.id !== id)
+// Hapus Pegawai via API Laravel
+const handleDelete = async (id) => {
+  if (!confirm('Yakin ingin menghapus data pegawai ini?')) return
+
+  try {
+    const token = localStorage.getItem('token')
+    const headers = { 'Accept': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const response = await fetch(`http://127.0.0.1:8000/api/pegawai/${id}`, {
+      method: 'DELETE',
+      headers: headers
+    })
+
+    if (response.ok) {
+      await fetchPegawai() // Refresh data dari DB
+    } else {
+      alert('Gagal menghapus data pegawai.')
+    }
+  } catch (error) {
+    console.error('Gagal menghapus pegawai:', error)
+  }
 }
 
 const handleLogout = () => {
   localStorage.removeItem('isAuthenticated')
   localStorage.removeItem('username')
+  localStorage.removeItem('token')
   router.push({ name: 'Login' })
 }
 </script>
@@ -368,16 +438,28 @@ const handleLogout = () => {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-800">
+                <tr v-if="isLoading">
+                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Memuat data pegawai...</td>
+                </tr>
+
+                <tr v-else-if="paginatedPegawai.length === 0">
+                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Tidak ada data pegawai yang ditemukan.</td>
+                </tr>
+
                 <tr 
+                  v-else
                   v-for="(pegawai, index) in paginatedPegawai" 
                   :key="pegawai.id"
                   class="hover:bg-gray-50/80 transition"
                 >
                   <td class="py-4 px-6 text-center text-gray-900 font-semibold">{{ displayFrom + index }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nama }}</td>
+                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.name }}</td>
                   <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nip }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.posisi }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.dataWajah }}</td>
+                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.jabatan || 'Staff' }}</td>
+                  <td class="py-4 px-6 text-gray-900 font-semibold">
+                    <span v-if="pegawai.face_embedding" class="text-xs bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-semibold">Tersimpan</span>
+                    <span v-else class="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-semibold">Belum Ada</span>
+                  </td>
                   <td class="py-4 px-6">
                     <div class="flex items-center justify-center space-x-2">
                       <button class="bg-[#0B1A30] hover:bg-slate-800 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition">Edit</button>
@@ -387,10 +469,6 @@ const handleLogout = () => {
                       >Delete</button>
                     </div>
                   </td>
-                </tr>
-
-                <tr v-if="paginatedPegawai.length === 0">
-                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Tidak ada data pegawai yang ditemukan.</td>
                 </tr>
               </tbody>
             </table>
@@ -522,6 +600,7 @@ const handleLogout = () => {
 
       </div>
     </div>
+
     <!-- DRAWER NOTIFIKASI -->
     <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
       <div class="flex items-center justify-between pb-3 border-b border-gray-100">
