@@ -29,7 +29,7 @@ class _PresensiPageState extends State<PresensiPage> {
   // Koordinat Kantor (Jl. Veteran)
   final double _officeLat = -6.168305;
   final double _officeLng = 106.824700;
-  final double _allowedRadius = 3000000.0; // Meter
+  final double _allowedRadius = 300.0; // Meter
 
   @override
   void initState() {
@@ -117,7 +117,7 @@ class _PresensiPageState extends State<PresensiPage> {
     });
 
     try {
-      // 1. Ambil Token dari SharedPreferences (Cek 'access_token' & 'token')
+      // 1. Ambil Token dari SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       String token = prefs.getString('access_token') ?? prefs.getString('token') ?? '';
 
@@ -126,9 +126,11 @@ class _PresensiPageState extends State<PresensiPage> {
       // Jika token tidak ada di storage, minta user login ulang
       if (token.isEmpty) {
         _showResultDialog(
-          title: 'Sesi Berakhir',
-          message: 'Token login tidak ditemukan/expired. Silakan Login Ulang!',
           isSuccess: false,
+          title: 'Sesi Berakhir',
+          description: 'Token login tidak ditemukan/expired. Silakan Login Ulang!',
+          errorType: 'AUTENTIKASI GAGAL',
+          errorMessage: 'Silakan masuk kembali ke akun Anda.',
         );
         setState(() {
           _isSubmitting = false;
@@ -169,30 +171,42 @@ class _PresensiPageState extends State<PresensiPage> {
       final resData = jsonDecode(response.body);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Format Waktu Saat Ini (Contoh: 07:30 WIB)
+        DateTime now = DateTime.now();
+        String formattedTime = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} WIB";
+
         _showResultDialog(
-          title: 'Presensi Berhasil!',
-          message: 'Wajah Terverifikasi! (Kemiripan: ${resData['similarity'] ?? '-'})',
           isSuccess: true,
+          userName: 'Ramzy Atchallah',
+          waktu: formattedTime,
+          lokasi: 'Gedung Utama',
+          presensiId: 'PRE-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${resData['data_id'] ?? "001"}',
         );
       } else if (response.statusCode == 401) {
         _showResultDialog(
-          title: 'Sesi Kedaluwarsa',
-          message: 'Token login Anda tidak valid lagi. Silakan Login Ulang!',
           isSuccess: false,
+          title: 'Sesi Kedaluwarsa',
+          description: 'Token login Anda tidak valid lagi. Silakan Login Ulang!',
+          errorType: 'AKSES DITOLAK',
+          errorMessage: 'Token Sanctum telah kadaluwarsa.',
         );
       } else {
         _showResultDialog(
-          title: 'Presensi Gagal!',
-          message: resData['message'] ?? 'Wajah tidak cocok!',
           isSuccess: false,
+          title: 'Presensi Ditolak',
+          description: resData['message'] ?? 'Maaf, wajah tidak dikenali atau lokasi Anda berada di luar radius kantor.',
+          errorType: 'VERIFIKASI GAGAL',
+          errorMessage: 'Data wajah atau lokasi tidak sesuai.',
         );
       }
     } catch (e) {
       if (!mounted) return;
       _showResultDialog(
-        title: 'Error System',
-        message: 'Gagal terhubung ke Server: $e',
         isSuccess: false,
+        title: 'Error System',
+        description: 'Gagal terhubung ke Server. Pastikan koneksi atau server backend aktif.',
+        errorType: 'KONEKSI TERPUTUS',
+        errorMessage: e.toString(),
       );
     } finally {
       if (mounted) {
@@ -203,51 +217,301 @@ class _PresensiPageState extends State<PresensiPage> {
     }
   }
 
-  void _showResultDialog({required String title, required String message, required bool isSuccess}) {
+  // Pop-up Dialog Custom Sesuai Design Rencana UI
+  void _showResultDialog({
+    required bool isSuccess,
+    String? userName,
+    String? waktu,
+    String? lokasi,
+    String? presensiId,
+    String? title,
+    String? description,
+    String? errorType,
+    String? errorMessage,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Column(
-          children: [
-            Icon(
-              isSuccess ? Icons.check_circle : Icons.cancel,
-              color: isSuccess ? const Color(0xFF006C49) : Colors.red,
-              size: 60,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-          ],
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: isSuccess
+              ? _buildSuccessPopUp(userName, waktu, lokasi, presensiId)
+              : _buildErrorPopUp(title, description, errorType, errorMessage),
         ),
-        content: Text(
-          message,
+      ),
+    );
+  }
+
+  // Tampilan Pop-up SUKSES
+  Widget _buildSuccessPopUp(String? userName, String? waktu, String? lokasi, String? presensiId) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Icon Circle Hijau Soft
+        Container(
+          width: 90,
+          height: 90,
+          decoration: const BoxDecoration(
+            color: Color(0xFF63F5AD),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.check_rounded,
+            color: Color(0xFF005031),
+            size: 50,
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Judul
+        const Text(
+          'Presensi Berhasil!',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Subtitle Ucapan Nama User
+        RichText(
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 13, color: Colors.black87),
+          text: TextSpan(
+            style: const TextStyle(fontSize: 14, color: Color(0xFF4B5563), height: 1.4),
+            children: [
+              const TextSpan(text: 'Selamat bekerja, '),
+              TextSpan(
+                text: '${userName ?? "Pegawai"}. ',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+              ),
+              const TextSpan(text: 'Data kehadiran Anda telah tersimpan.'),
+            ],
+          ),
         ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                if (isSuccess) Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isSuccess ? const Color(0xFF1D4ED8) : Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        const SizedBox(height: 20),
+
+        // Card Detail (Waktu & Lokasi)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.access_time_filled, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Waktu', style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
+                  const Spacer(),
+                  Text(
+                    waktu ?? '07:30 WIB',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111827)),
+                  ),
+                ],
               ),
-              child: Text(
-                isSuccess ? 'Kembali ke Beranda' : 'Coba Lagi',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1, color: Color(0xFFF3F4F6)),
               ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Lokasi', style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
+                  const Spacer(),
+                  Text(
+                    lokasi ?? 'Gedung Utama',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111827)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Tombol Kembali ke Beranda
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0052FF),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+              elevation: 0,
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Kembali ke Beranda',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                SizedBox(width: 8),
+                Icon(Icons.arrow_forward, color: Colors.white, size: 20),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+
+        // Footer ID Presensi
+        Text(
+          'ID PRESENSI: ${presensiId ?? "PRE-20260722-001"}',
+          style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF), fontWeight: FontWeight.bold, letterSpacing: 0.5),
+        ),
+      ],
+    );
+  }
+
+  // Tampilan Pop-up GAGAL / DITOLAK
+  Widget _buildErrorPopUp(String? title, String? description, String? errorType, String? errorMessage) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Icon Circle Merah Soft
+        Container(
+          width: 90,
+          height: 90,
+          decoration: const BoxDecoration(
+            color: Color(0xFFFFD1D1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.warning_rounded,
+            color: Color(0xFF990000),
+            size: 50,
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Judul Gagal
+        Text(
+          title ?? 'Presensi Ditolak',
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Deskripsi Gagal
+        Text(
+          description ?? 'Maaf, wajah tidak dikenali atau lokasi Anda berada di luar radius kantor.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
+        ),
+        const SizedBox(height: 20),
+
+        // Box Informasi Kesalahan Teknis
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.wifi_off_rounded, color: Color(0xFFDC2626), size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      errorType ?? 'KESALAHAN TEKNIS',
+                      style: const TextStyle(
+                        color: Color(0xFFDC2626),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      errorMessage ?? 'Lokasi: Di luar jangkauan (Radius > 50m)',
+                      style: const TextStyle(
+                        color: Color(0xFF1F2937),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Tombol Coba Lagi
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0052FF),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+              elevation: 0,
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Coba Lagi',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Text Button Hubungi Admin
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text(
+            'Hubungi Admin',
+            style: TextStyle(color: Color(0xFF4B5563), fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+        ),
+      ],
     );
   }
 
