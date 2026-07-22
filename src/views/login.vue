@@ -1,6 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import loginBg from '../assets/image_setneg.png'
+import logoSetneg from '../assets/logosetneg.png'
 
 const router = useRouter()
 const username = ref('')
@@ -39,15 +41,15 @@ const handleSubmit = () => {
     <!-- Main Hero Container -->
     <div 
       class="relative w-full max-w-5xl h-[550px] rounded-3xl overflow-hidden shadow-2xl bg-cover bg-center flex items-center justify-center"
-      style="background-image: url('https://images.unsplash.com/photo-1541872703-74c5e44368f9?q=80&w=1200');"
+      :style="{ backgroundImage: `url(${loginBg})` }"
     >
       <!-- Dark Overlay -->
       <div class="absolute inset-0 bg-black/40"></div>
 
       <!-- Header Logo Kemensetneg -->
       <div class="absolute top-6 left-8 z-10 flex items-center space-x-3 text-white">
-        <div class="w-12 h-12 rounded-full border-2 border-amber-400 bg-amber-500/20 flex items-center justify-center font-bold text-amber-300 text-xl">
-          ★
+        <div class="w-12 h-12 bg-amber-500/20 flex items-center justify-center overflow-hidden">
+          <img :src="logoSetneg" alt="logo setneg" class="w-full h-full object-cover" />
         </div>
         <div class="leading-tight">
           <h2 class="font-bold text-xs tracking-wider uppercase">Kementerian Sekretariat Negara</h2>

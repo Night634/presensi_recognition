@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import logoSetneg from '../assets/logosetneg.png'
 import { 
   LayoutGrid, 
   Users, 
@@ -308,7 +309,9 @@ const handleLogout = () => {
             <Menu class="w-6 h-6" />
           </button>
           <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-full border border-amber-500 bg-amber-50 flex items-center justify-center font-black text-amber-600 text-xs">★</div>
+            <div class="w-8 h-8 bg-white flex items-center justify-center">
+              <img :src="logoSetneg" alt="Logo Setneg" class="w-full h-full object-cover" />
+            </div>
             <span class="font-bold text-xs uppercase tracking-wide text-gray-800">Kementerian Sekretariat Negara Republik Indonesia</span>
           </div>
         </div>
