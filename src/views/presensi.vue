@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, LogOut, Bell, Search, 
@@ -19,6 +19,8 @@ onMounted(() => {
 const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
 const searchQuery = ref('')
+const currentPage = ref(1)
+const pageSize = ref(4)
 const activeMenu = ref('Presensi')
 
 const navItems = [
@@ -46,7 +48,7 @@ const presensiList = ref([
   { id: 2, nama: 'Muh Fahrul Fahrezi', jamMasuk: '08:00', jamKeluar: '16:00', totalJamKerja: '08:00:00' },
   { id: 3, nama: 'Muh Fahrul Fahrezi', jamMasuk: '08:00', jamKeluar: '16:00', totalJamKerja: '08:00:00' },
   { id: 4, nama: 'Muh Fahrul Fahrezi', jamMasuk: '08:00', jamKeluar: '16:00', totalJamKerja: '08:00:00' },
-  { id: 5, nama: 'Muh Fahrul Fahrezi', jamMasuk: '08:00', jamKeluar: '16:00', totalJamKerja: '08:00:00' },
+  { id: 5, nama: 'Ramzy Atchallah Putra', jamMasuk: '08:00', jamKeluar: '16:00', totalJamKerja: '08:00:00' },
 ])
 
 // Notifications Data
@@ -67,6 +69,26 @@ const filteredPresensi = computed(() => {
     item.nama.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredPresensi.value.length / pageSize.value)))
+const paginatedPresensi = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredPresensi.value.slice(start, start + pageSize.value)
+})
+const displayFrom = computed(() => filteredPresensi.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
+const displayTo = computed(() => Math.min(filteredPresensi.value.length, currentPage.value * pageSize.value))
+
+watch(searchQuery, () => {
+  currentPage.value = 1
+})
+
+const goToPrev = () => {
+  if (currentPage.value > 1) currentPage.value -= 1
+}
+
+const goToNext = () => {
+  if (currentPage.value < totalPages.value) currentPage.value += 1
+}
 </script>
 
 <template>
@@ -165,9 +187,9 @@ const filteredPresensi = computed(() => {
         <!-- TABLE DATA PRESENSI -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
+            <table class="w-full text-left border-collapse min-w-[650px]">
               <thead>
-                <tr class="border-b border-gray-100 text-xs font-bold text-gray-800">
+                <tr class="border-b border-gray-100 text-xs font-bold text-gray-800 bg-white">
                   <th class="py-4 px-6 text-center w-16">No</th>
                   <th class="py-4 px-6">
                     <div class="flex items-center space-x-1.5 cursor-pointer">
@@ -180,13 +202,16 @@ const filteredPresensi = computed(() => {
                   <th class="py-4 px-6">Total Jam Kerja</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-100 text-sm font-semibold text-gray-900">
-                <tr v-for="(item, index) in filteredPresensi" :key="item.id" class="hover:bg-gray-50/80 transition">
-                  <td class="py-4 px-6 text-center">{{ index + 1 }}</td>
+              <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-800">
+                <tr v-for="(item, index) in paginatedPresensi" :key="item.id" class="hover:bg-gray-50/80 transition">
+                  <td class="py-4 px-6 text-center">{{ displayFrom + index }}</td>
                   <td class="py-4 px-6">{{ item.nama }}</td>
                   <td class="py-4 px-6">{{ item.jamMasuk }}</td>
                   <td class="py-4 px-6">{{ item.jamKeluar }}</td>
                   <td class="py-4 px-6">{{ item.totalJamKerja }}</td>
+                </tr>
+                <tr v-if="paginatedPresensi.length === 0">
+                  <td colspan="5" class="py-8 text-center text-gray-400 text-sm">Tidak ada data presensi yang ditemukan.</td>
                 </tr>
               </tbody>
             </table>
@@ -196,16 +221,20 @@ const filteredPresensi = computed(() => {
         <div class="flex items-center justify-end space-x-4 text-xs font-medium text-gray-600 pt-2">
           <div class="flex items-center space-x-2">
             <span>Halaman:</span>
-            <select class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none">
-              <option value="01">01</option>
+            <select v-model="currentPage" class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none">
+              <option v-for="page in totalPages" :key="page" :value="page">{{ page }}</option>
             </select>
           </div>
 
-          <span>1 - 4 dari 5</span>
+          <span>{{ displayFrom }} - {{ displayTo }} dari {{ filteredPresensi.length }}</span>
 
           <div class="flex items-center space-x-1">
-            <button class="p-1 text-gray-400"><ChevronLeft class="w-4 h-4" /></button>
-            <button class="p-1 text-gray-600"><ChevronRight class="w-4 h-4" /></button>
+            <button @click="goToPrev" :disabled="currentPage === 1" class="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30">
+              <ChevronLeft class="w-4 h-4" />
+            </button>
+            <button @click="goToNext" :disabled="currentPage === totalPages" class="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30">
+              <ChevronRight class="w-4 h-4" />
+            </button>
           </div>
         </div>
       </main>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, LogOut, Bell, Search, 
@@ -20,6 +20,8 @@ const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
 const isInspectOpen = ref(false)
 const searchQuery = ref('')
+const currentPage = ref(1)
+const pageSize = ref(4)
 const activeMenu = ref('Cuti')
 
 const navItems = [
@@ -43,22 +45,22 @@ const handleLogout = () => {
 
 // Selected Cuti Detail untuk Inspect Modal
 const selectedCuti = ref({
-  nip: '31239340234',
-  nama: 'Ramzy Atchallah',
-  status: 'Cuti',
-  startDate: '16/07/2025',
-  endDate: '19/07/2025',
-  alasan: 'Keperluan keluarga penting.',
+  nip: '',
+  nama: '',
+  status: '',
+  startDate: '',
+  endDate: '',
+  alasan: '',
   lampiran: 'surat_keterangan.pdf'
 })
 
 // Data Cuti Dummy
 const cutiList = ref([
-  { id: 1, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti' },
-  { id: 2, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit' },
-  { id: 3, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit' },
-  { id: 4, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti' },
-  { id: 5, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti' },
+  { id: 1, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_1.pdf' },
+  { id: 2, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit', lampiran: 'surat_sakit_2.pdf' },
+  { id: 3, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit', lampiran: 'surat_sakit_3.pdf' },
+  { id: 4, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_4.pdf' },
+  { id: 5, nama: 'Ramzy Atchallah Putra', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_5.pdf' },
 ])
 
 // Notification Dummy Data
@@ -72,8 +74,15 @@ const notifications = ref([
 
 // Actions
 const handleInspect = (item) => {
-  selectedCuti.value.nama = item.nama
-  selectedCuti.value.status = item.status
+  selectedCuti.value = {
+    nip: '',
+    nama: '',
+    status: '',
+    startDate: '',
+    endDate: '',
+    alasan: '',
+    lampiran: item.lampiran || 'surat_keterangan.pdf'
+  }
   isInspectOpen.value = true
 }
 
@@ -94,6 +103,18 @@ const filteredCuti = computed(() => {
   return cutiList.value.filter(item => 
     item.nama.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredCuti.value.length / pageSize.value)))
+const paginatedCuti = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredCuti.value.slice(start, start + pageSize.value)
+})
+const displayFrom = computed(() => filteredCuti.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
+const displayTo = computed(() => Math.min(filteredCuti.value.length, currentPage.value * pageSize.value))
+
+watch(searchQuery, () => {
+  currentPage.value = 1
 })
 </script>
 
@@ -210,8 +231,8 @@ const filteredCuti = computed(() => {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 text-sm font-semibold text-gray-900">
-                <tr v-for="(item, index) in filteredCuti" :key="item.id" class="hover:bg-gray-50/80 transition">
-                  <td class="py-4 px-6 text-center">{{ index + 1 }}</td>
+                <tr v-for="(item, index) in paginatedCuti" :key="item.id" class="hover:bg-gray-50/80 transition">
+                  <td class="py-4 px-6 text-center">{{ displayFrom + index }}</td>
                   <td class="py-4 px-6">{{ item.nama }}</td>
                   <td class="py-4 px-6">{{ item.startDate }}</td>
                   <td class="py-4 px-6">{{ item.endDate }}</td>
@@ -231,14 +252,14 @@ const filteredCuti = computed(() => {
         <div class="flex items-center justify-end space-x-4 text-xs font-medium text-gray-600 pt-2">
           <div class="flex items-center space-x-2">
             <span>Halaman:</span>
-            <select class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none">
-              <option value="01">01</option>
+            <select v-model="currentPage" class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none">
+              <option v-for="page in totalPages" :key="page" :value="page">{{ page }}</option>
             </select>
           </div>
-          <span>1 - 4 dari 5</span>
+          <span>{{ displayFrom }} - {{ displayTo }} dari {{ filteredCuti.length }}</span>
           <div class="flex items-center space-x-1">
-            <button class="p-1 text-gray-400"><ChevronLeft class="w-4 h-4" /></button>
-            <button class="p-1 text-gray-600"><ChevronRight class="w-4 h-4" /></button>
+            <button @click="currentPage = Math.max(1, currentPage - 1)" :disabled="currentPage === 1" class="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"><ChevronLeft class="w-4 h-4" /></button>
+            <button @click="currentPage = Math.min(totalPages, currentPage + 1)" :disabled="currentPage === totalPages" class="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30"><ChevronRight class="w-4 h-4" /></button>
           </div>
         </div>
       </main>
@@ -307,7 +328,9 @@ const filteredCuti = computed(() => {
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Lampiran</label>
             <div class="bg-gray-500 rounded-2xl h-44 flex items-center justify-center relative overflow-hidden">
-              <button type="button" class="bg-white hover:bg-gray-100 text-blue-600 border border-blue-600 text-xs font-semibold px-4 py-1.5 rounded-lg shadow-xs transition">img/pdf</button>
+              <div class="text-center text-white text-xs font-semibold px-4 py-2">
+                {{ selectedCuti.lampiran || 'No file attached' }}
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   LayoutGrid, 
@@ -34,15 +34,23 @@ const isNotifOpen = ref(false)
 // State Modal & Form Tambah Pegawai
 const isModalOpen = ref(false)
 const formPegawai = ref({
-  nip: '31239340234',
-  nama: 'Ramzy Atchallah',
-  email: 'ramzy123@gmail.com',
-  posisi: 'Staff',
+  nip: '',
+  nama: '',
+  email: '',
+  posisi: '',
   foto: null
 })
+const kameraAktif = ref(false)
+const videoStream = ref(null)
+const videoRef = ref(null)
+const canvasRef = ref(null)
+const cameraFrame = ref(null)
+const fotoPreview = ref(null)
 
 // State Search & Table Data
 const searchQuery = ref('')
+const currentPage = ref(1)
+const pageSize = ref(4)
 const activeMenu = ref('Pegawai')
 
 const pegawaiList = ref([
@@ -50,7 +58,7 @@ const pegawaiList = ref([
   { id: 2, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
   { id: 3, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
   { id: 4, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 5, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
+  { id: 5, nama: 'Ramzy Atchallah Putra', nip: '315720834', posisi: 'Staff', dataWajah: 'Image.jpg' },
 ])
 
 const notifications = ref([
@@ -65,6 +73,88 @@ const clearAllNotif = () => {
   notifications.value = []
 }
 
+const drawToCanvas = () => {
+  if (!kameraAktif.value || !videoRef.value || !canvasRef.value) return
+  const video = videoRef.value
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  if (video.videoWidth && video.videoHeight) {
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+  }
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+  cameraFrame.value = requestAnimationFrame(drawToCanvas)
+}
+
+const startCamera = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    alert('Kamera tidak tersedia di perangkat ini.')
+    return
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    videoStream.value = stream
+    kameraAktif.value = true
+    if (videoRef.value) {
+      videoRef.value.srcObject = stream
+      await videoRef.value.play()
+    }
+    cameraFrame.value = requestAnimationFrame(drawToCanvas)
+  } catch (error) {
+    console.error(error)
+    alert('Tidak dapat mengakses kamera. Pastikan izin sudah diberikan.')
+  }
+}
+
+const stopCamera = () => {
+  if (videoStream.value) {
+    videoStream.value.getTracks().forEach(track => track.stop())
+    videoStream.value = null
+  }
+  if (cameraFrame.value) {
+    cancelAnimationFrame(cameraFrame.value)
+    cameraFrame.value = null
+  }
+  kameraAktif.value = false
+}
+
+const capturePhoto = () => {
+  if (!videoRef.value) return
+
+  const video = videoRef.value
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth || 640
+  canvas.height = video.videoHeight || 480
+  const ctx = canvas.getContext('2d')
+
+  if (ctx) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    fotoPreview.value = canvas.toDataURL('image/png')
+    formPegawai.value.foto = fotoPreview.value
+  }
+
+  stopCamera()
+}
+
+const resetForm = () => {
+  formPegawai.value = {
+    nip: '',
+    nama: '',
+    email: '',
+    posisi: '',
+    foto: null
+  }
+  fotoPreview.value = null
+  stopCamera()
+}
+
+onUnmounted(() => {
+  stopCamera()
+})
+
 // Filter data pegawai berdasarkan pencarian
 const filteredPegawai = computed(() => {
   return pegawaiList.value.filter(p => 
@@ -73,6 +163,26 @@ const filteredPegawai = computed(() => {
     p.posisi.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredPegawai.value.length / pageSize.value)))
+const paginatedPegawai = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredPegawai.value.slice(start, start + pageSize.value)
+})
+const displayFrom = computed(() => filteredPegawai.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
+const displayTo = computed(() => Math.min(filteredPegawai.value.length, currentPage.value * pageSize.value))
+
+watch(searchQuery, () => {
+  currentPage.value = 1
+})
+
+const goToPrevPegawai = () => {
+  if (currentPage.value > 1) currentPage.value -= 1
+}
+
+const goToNextPegawai = () => {
+  if (currentPage.value < totalPages.value) currentPage.value += 1
+}
 
 // Navigation Items
 const navItems = [
@@ -90,11 +200,13 @@ const navigateTo = (item) => {
 
 // Actions
 const handleOpenModal = () => {
+  resetForm()
   isModalOpen.value = true
 }
 
 const handleCloseModal = () => {
   isModalOpen.value = false
+  stopCamera()
 }
 
 const handleTambahData = () => {
@@ -254,11 +366,11 @@ const handleLogout = () => {
               </thead>
               <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-800">
                 <tr 
-                  v-for="(pegawai, index) in filteredPegawai" 
+                  v-for="(pegawai, index) in paginatedPegawai" 
                   :key="pegawai.id"
                   class="hover:bg-gray-50/80 transition"
                 >
-                  <td class="py-4 px-6 text-center text-gray-900 font-semibold">{{ index + 1 }}</td>
+                  <td class="py-4 px-6 text-center text-gray-900 font-semibold">{{ displayFrom + index }}</td>
                   <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nama }}</td>
                   <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nip }}</td>
                   <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.posisi }}</td>
@@ -274,7 +386,7 @@ const handleLogout = () => {
                   </td>
                 </tr>
 
-                <tr v-if="filteredPegawai.length === 0">
+                <tr v-if="paginatedPegawai.length === 0">
                   <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Tidak ada data pegawai yang ditemukan.</td>
                 </tr>
               </tbody>
@@ -286,19 +398,18 @@ const handleLogout = () => {
         <div class="flex flex-col sm:flex-row items-center justify-end gap-4 text-xs font-medium text-gray-600 pt-2">
           <div class="flex items-center space-x-2">
             <span>Halaman:</span>
-            <select class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none text-xs">
-              <option value="1">1</option>
-              <option value="2">2</option>
+            <select v-model="currentPage" class="border border-gray-300 rounded-md px-2 py-1 bg-white focus:outline-none text-xs">
+              <option v-for="page in totalPages" :key="page" :value="page">{{ page }}</option>
             </select>
           </div>
 
-          <span>1 - 4 dari 5</span>
+          <span>{{ displayFrom }} - {{ displayTo }} dari {{ filteredPegawai.length }}</span>
 
           <div class="flex items-center space-x-1">
-            <button class="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30">
+            <button @click="goToPrevPegawai" :disabled="currentPage === 1" class="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30">
               <ChevronLeft class="w-4 h-4" />
             </button>
-            <button class="p-1 text-gray-600 hover:text-gray-900">
+            <button @click="goToNextPegawai" :disabled="currentPage === totalPages" class="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30">
               <ChevronRight class="w-4 h-4" />
             </button>
           </div>
@@ -366,18 +477,24 @@ const handleLogout = () => {
           <!-- Area Ambil Gambar Muka -->
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Ambil Gambar Muka</label>
-            <div class="bg-gray-500 rounded-2xl h-52 flex flex-col items-center justify-center space-y-3 relative overflow-hidden">
-              <!-- Placeholder Camera Icon -->
-              <div class="w-16 h-12 bg-gray-300 rounded-lg flex items-center justify-center shadow-xs">
-                <Camera class="w-8 h-8 text-gray-600" />
+            <div class="bg-gray-500 rounded-2xl h-52 flex items-center justify-center relative overflow-hidden">
+              <canvas ref="canvasRef" class="w-full h-full object-cover"></canvas>
+              <video ref="videoRef" class="hidden" autoplay muted playsinline></video>
+              <div v-if="!kameraAktif && !fotoPreview" class="absolute inset-0 flex items-center justify-center">
+                <div class="w-16 h-12 bg-gray-300 rounded-lg flex items-center justify-center shadow-xs">
+                  <Camera class="w-8 h-8 text-gray-600" />
+                </div>
+              </div>
+              <div v-if="!kameraAktif && fotoPreview" class="absolute inset-0">
+                <img :src="fotoPreview" alt="Preview Foto" class="w-full h-full object-cover" />
               </div>
 
-              <!-- Button Capture -->
               <button
                 type="button"
-                class="bg-white hover:bg-gray-100 text-blue-600 border border-blue-600 text-xs font-semibold px-4 py-1.5 rounded-lg shadow-xs transition"
+                @click="kameraAktif ? capturePhoto() : startCamera()"
+                class="absolute bottom-4 bg-white hover:bg-gray-100 text-blue-600 border border-blue-600 text-xs font-semibold px-4 py-1.5 rounded-lg shadow-xs transition"
               >
-                Ambil Gambar
+                {{ kameraAktif ? 'Capture' : 'Ambil Gambar' }}
               </button>
             </div>
           </div>
