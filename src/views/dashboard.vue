@@ -133,6 +133,7 @@
             </div>
           </div>
         </div>
+        <router-view />
       </main>
     </div>
     <!-- DRAWER NOTIFIKASI -->
@@ -234,18 +235,19 @@ const currentDate = new Date().toLocaleDateString('id-ID', {
 
 const activeMenu = ref('Dashboard')
 
+// Nav Items memakai 'path' atau 'route' (keduanya bisa!)
 const navItems = [
-  { name: 'Dashboard', icon: LayoutGrid, route: 'Dashboard' },
-  { name: 'Pegawai', icon: Users, route: 'Pegawai' },
-  { name: 'Presensi', icon: Scan, route: 'Presensi' },
-  { name: 'Cuti', icon: CalendarCheck, route: 'Cuti' },
-  { name: 'Lokasi', icon: MapPin, route: 'Lokasi' },
+  { name: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
+  { name: 'Pegawai', icon: Users, path: '/pegawai' },
+  { name: 'Presensi', icon: Scan, path: '/presensi' },
+  { name: 'Cuti', icon: CalendarCheck, path: '/cuti' },
+  { name: 'Lokasi', icon: MapPin, path: '/lokasi' },
 ]
 
 const navigateTo = (item) => {
   activeMenu.value = item.name
   isSidebarOpen.value = false
-  router.push({ name: item.route })
+  router.push(item.path)
 }
 
 const statsCards = [

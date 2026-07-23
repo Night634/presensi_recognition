@@ -46,14 +46,11 @@ const router = createRouter({
 
 // Navigation Guard menggunakan sessionStorage
 router.beforeEach((to, from, next) => {
-  // Ubah ke sessionStorage
   const token = sessionStorage.getItem('admin_token')
 
   if (to.meta.requiresAuth && !token) {
-    // Jika akses route rahasia tanpa token -> Tendang ke Login
     next({ name: 'Login' })
   } else if (to.name === 'Login' && token) {
-    // Jika sudah ada token lalu buka Login -> Lempar ke Dashboard
     next({ name: 'Dashboard' })
   } else {
     next()

@@ -1,47 +1,44 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
 import { 
-  LayoutGrid, 
-  Users, 
-  Scan, 
-  CalendarCheck, 
-  MapPin,
-  LogOut, 
-  Bell, 
-  Search, 
-  ArrowUpDown, 
-  Camera, 
-  ChevronLeft, 
-  ChevronRight,
-  User,
-  Menu,
-  X
+  LayoutGrid, Users, Scan, CalendarCheck, MapPin,
+  LogOut, Bell, Search, ArrowUpDown, Camera, 
+  ChevronLeft, ChevronRight, User as UserIcon, Menu, X, RefreshCw
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const API_URL = 'http://localhost:8000/api/users' // Sesuaikan URL backend Laravel kamu
 
-onMounted(() => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-  if (!isAuthenticated) {
-    router.push({ name: 'Login' })
-  }
+// Config Auth Token Axios
+const getAuthHeader = () => ({
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('admin_token')}` }
 })
 
-// State Sidebar Mobile
+// State Interface/UI
 const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
+const isLoading = ref(false)
+const isSubmitting = ref(false)
 
-// State Modal & Form Tambah Pegawai
+// State Modal & Form CRUD Pegawai
 const isModalOpen = ref(false)
+const isEditMode = ref(false)
+const editingId = ref(null)
+
 const formPegawai = ref({
   nip: '',
-  nama: '',
+  name: '',
   email: '',
-  posisi: '',
+  password: '',
+  jabatan: '',
+  status_aktif: true,
   foto: null
 })
+
+// State Kamera WebCam
 const kameraAktif = ref(false)
 const videoStream = ref(null)
 const videoRef = ref(null)
@@ -49,31 +46,82 @@ const canvasRef = ref(null)
 const cameraFrame = ref(null)
 const fotoPreview = ref(null)
 
-// State Search & Table Data
+// State Search, Data, & Pagination
 const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(4)
 const activeMenu = ref('Pegawai')
 
-const pegawaiList = ref([
-  { id: 1, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 2, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 3, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 4, nama: 'Muh Fahrul Fahrezi', nip: '315720393', posisi: 'Staff', dataWajah: 'Image.jpg' },
-  { id: 5, nama: 'Ramzy Atchallah Putra', nip: '315720834', posisi: 'Staff', dataWajah: 'Image.jpg' },
-])
+// Master Data Pegawai (From API)
+const pegawaiList = ref([])
 
 const notifications = ref([
   { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
   { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
-  { id: 3, name: 'Atchallah', action: 'Mengajukan Cuti', time: '15 min', unread: false },
-  { id: 4, name: 'Putra', action: 'Mengajukan Cuti', time: '16 min', unread: false },
-  { id: 5, name: 'thejoeswanson', action: 'High fived your workout', time: '18 min', unread: true },
 ])
 
-const clearAllNotif = () => {
-  notifications.value = []
+// ===== API CRUD OPERATIONS =====
+
+// 1. Fetch List Pegawai
+const fetchPegawai = async () => {
+  isLoading.value = true
+  try {
+    const res = await axios.get(API_URL, getAuthHeader())
+    pegawaiList.value = res.data
+  } catch (error) {
+    console.error('Gagal mengambil data pegawai:', error)
+  } finally {
+    isLoading.value = false
+  }
 }
+
+// 2. Submit Form (Tambah / Edit)
+const handleSubmit = async () => {
+  isSubmitting.value = true
+  try {
+    const payload = {
+      nip: formPegawai.value.nip,
+      name: formPegawai.value.name,
+      email: formPegawai.value.email,
+      jabatan: formPegawai.value.jabatan,
+      role: 'pegawai', // <-- KUNCI: Set otomatis role jadi pegawai
+      status_aktif: formPegawai.value.status_aktif,
+      foto: fotoPreview.value || formPegawai.value.foto
+    }
+
+    if (formPegawai.value.password) {
+      payload.password = formPegawai.value.password
+    }
+
+    if (isEditMode.value) {
+      await axios.put(`${API_URL}/${editingId.value}`, payload, getAuthHeader())
+    } else {
+      await axios.post(API_URL, payload, getAuthHeader())
+    }
+
+    await fetchPegawai()
+    handleCloseModal()
+  } catch (error) {
+    console.error('Gagal menyimpan data pegawai:', error)
+    alert(error.response?.data?.message || 'Gagal menyimpan data pegawai!')
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+// 3. Delete Pegawai
+const handleDelete = async (id) => {
+  if (!confirm('Apakah Anda yakin ingin menghapus pegawai ini?')) return
+  try {
+    await axios.delete(`${API_URL}/${id}`, getAuthHeader())
+    await fetchPegawai()
+  } catch (error) {
+    console.error('Gagal menghapus pegawai:', error)
+    alert('Gagal menghapus pegawai!')
+  }
+}
+
+// ===== LOGIKA KAMERA =====
 
 const drawToCanvas = () => {
   if (!kameraAktif.value || !videoRef.value || !canvasRef.value) return
@@ -92,7 +140,7 @@ const drawToCanvas = () => {
 
 const startCamera = async () => {
   if (!navigator.mediaDevices?.getUserMedia) {
-    alert('Kamera tidak tersedia di perangkat ini.')
+    alert('Kamera tidak tersedia pada perangkat/browser ini.')
     return
   }
 
@@ -107,7 +155,7 @@ const startCamera = async () => {
     cameraFrame.value = requestAnimationFrame(drawToCanvas)
   } catch (error) {
     console.error(error)
-    alert('Tidak dapat mengakses kamera. Pastikan izin sudah diberikan.')
+    alert('Tidak dapat mengakses kamera. Pastikan izin kamera telah diaktifkan.')
   }
 }
 
@@ -144,26 +192,61 @@ const capturePhoto = () => {
 const resetForm = () => {
   formPegawai.value = {
     nip: '',
-    nama: '',
+    name: '',
     email: '',
-    posisi: '',
+    password: '',
+    jabatan: '',
+    status_aktif: true,
     foto: null
   }
   fotoPreview.value = null
   stopCamera()
 }
 
-onUnmounted(() => {
-  stopCamera()
-})
+// ===== MODAL & FORM HANDLERS =====
 
-// Filter data pegawai berdasarkan pencarian
+const handleOpenModal = (item = null) => {
+  resetForm()
+  if (item) {
+    isEditMode.value = true
+    editingId.value = item.id
+    formPegawai.value = {
+      nip: item.nip || '',
+      name: item.name || '',
+      email: item.email || '',
+      password: '',
+      jabatan: item.jabatan || '',
+      status_aktif: item.status_aktif !== undefined ? item.status_aktif : true,
+      foto: item.foto || null
+    }
+    fotoPreview.value = item.foto || null
+  } else {
+    isEditMode.value = false
+    editingId.value = null
+  }
+  isModalOpen.value = true
+}
+
+const handleCloseModal = () => {
+  isModalOpen.value = false
+  stopCamera()
+}
+
+// ===== COMPUTED & PAGINATION =====
+
 const filteredPegawai = computed(() => {
-  return pegawaiList.value.filter(p => 
-    p.nama.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    p.nip.includes(searchQuery.value) ||
-    p.posisi.toLowerCase().includes(searchQuery.value.toLowerCase())
-  )
+  return pegawaiList.value.filter(p => {
+    // 1. Pastikan rolenya pegawai (atau bukan admin)
+    const isPegawai = p.role === 'pegawai' || p.role !== 'admin'
+    
+    // 2. Filter berdasarkan search query
+    const matchSearch = 
+      (p.name && p.name.toLowerCase().includes(searchQuery.value.toLowerCase())) ||
+      (p.nip && p.nip.includes(searchQuery.value)) ||
+      (p.jabatan && p.jabatan.toLowerCase().includes(searchQuery.value.toLowerCase()))
+
+    return isPegawai && matchSearch
+  })
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredPegawai.value.length / pageSize.value)))
@@ -171,20 +254,13 @@ const paginatedPegawai = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredPegawai.value.slice(start, start + pageSize.value)
 })
+
 const displayFrom = computed(() => filteredPegawai.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
 const displayTo = computed(() => Math.min(filteredPegawai.value.length, currentPage.value * pageSize.value))
 
-watch(searchQuery, () => {
-  currentPage.value = 1
-})
-
-const goToPrevPegawai = () => {
-  if (currentPage.value > 1) currentPage.value -= 1
-}
-
-const goToNextPegawai = () => {
-  if (currentPage.value < totalPages.value) currentPage.value += 1
-}
+watch(searchQuery, () => { currentPage.value = 1 })
+const goToPrevPegawai = () => { if (currentPage.value > 1) currentPage.value -= 1 }
+const goToNextPegawai = () => { if (currentPage.value < totalPages.value) currentPage.value += 1 }
 
 // Navigation Items
 const navItems = [
@@ -201,39 +277,18 @@ const navigateTo = (item) => {
   router.push({ name: item.route })
 }
 
-// Actions
-const handleOpenModal = () => {
-  resetForm()
-  isModalOpen.value = true
-}
-
-const handleCloseModal = () => {
-  isModalOpen.value = false
-  stopCamera()
-}
-
-const handleTambahData = () => {
-  if (formPegawai.value.nama && formPegawai.value.nip) {
-    pegawaiList.value.push({
-      id: pegawaiList.value.length + 1,
-      nama: formPegawai.value.nama,
-      nip: formPegawai.value.nip,
-      posisi: formPegawai.value.posisi,
-      dataWajah: 'Image.jpg'
-    })
-    handleCloseModal()
-  }
-}
-
-const handleDelete = (id) => {
-  pegawaiList.value = pegawaiList.value.filter(p => p.id !== id)
-}
-
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('username')
-  router.push({ name: 'Login' })
+  sessionStorage.clear()
+  router.replace({ name: 'Login' })
 }
+
+onMounted(() => {
+  fetchPegawai()
+})
+
+onUnmounted(() => {
+  stopCamera()
+})
 </script>
 
 <template>
@@ -254,7 +309,6 @@ const handleLogout = () => {
       ]"
     >
       <div>
-        <!-- Spacer / Logo Header Sidebar -->
         <div class="h-16 flex items-center justify-between px-6 border-b border-gray-100">
           <div class="flex items-center space-x-3">
             <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">P</div>
@@ -265,7 +319,6 @@ const handleLogout = () => {
           </button>
         </div>
 
-        <!-- Navigation List -->
         <nav class="mt-4 px-4 space-y-1.5">
           <button
             v-for="item in navItems"
@@ -286,13 +339,11 @@ const handleLogout = () => {
               />
               <span class="text-sm">{{ item.name }}</span>
             </div>
-            <!-- Indicator Line -->
             <div v-if="activeMenu === item.name" class="w-1.5 h-6 bg-blue-600 rounded-full"></div>
           </button>
         </nav>
       </div>
 
-      <!-- Logout Button -->
       <div class="p-4 border-t border-gray-100">
         <button @click="handleLogout" class="flex items-center space-x-3.5 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 rounded-xl w-full transition">
           <LogOut class="w-5 h-5" stroke-width="2" />
@@ -325,7 +376,6 @@ const handleLogout = () => {
       <!-- MAIN PAGE CONTENT -->
       <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
         
-        <!-- Welcome Title -->
         <div>
           <p class="text-xs font-semibold text-gray-400 mb-1">Hello, Admin</p>
           <h1 class="text-2xl font-bold text-gray-950">Welcome to List Pegawai!</h1>
@@ -337,16 +387,16 @@ const handleLogout = () => {
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search..."
+              placeholder="Cari NIP, nama, jabatan..."
               class="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-xs"
             />
             <Search class="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
           </div>
           <button
-            @click="handleOpenModal"
+            @click="handleOpenModal()"
             class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-md shadow-blue-500/20 transition duration-150 text-center"
           >
-            Add
+            + Tambah Pegawai
           </button>
         </div>
 
@@ -357,15 +407,10 @@ const handleLogout = () => {
               <thead>
                 <tr class="border-b border-gray-100 text-xs font-bold text-gray-800 bg-white">
                   <th class="py-4 px-6 text-center w-16">No</th>
-                  <th class="py-4 px-6">
-                    <div class="flex items-center space-x-1.5 cursor-pointer">
-                      <span>Nama</span>
-                      <ArrowUpDown class="w-3.5 h-3.5 text-gray-400" />
-                    </div>
-                  </th>
+                  <th class="py-4 px-6 text-center w-20">Foto</th>
+                  <th class="py-4 px-6">Nama</th>
                   <th class="py-4 px-6">NIP</th>
-                  <th class="py-4 px-6">Posisi</th>
-                  <th class="py-4 px-6">Data Wajah</th>
+                  <th class="py-4 px-6">Jabatan / Status</th>
                   <th class="py-4 px-6 text-center">Aksi</th>
                 </tr>
               </thead>
@@ -376,23 +421,55 @@ const handleLogout = () => {
                   class="hover:bg-gray-50/80 transition"
                 >
                   <td class="py-4 px-6 text-center text-gray-900 font-semibold">{{ displayFrom + index }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nama }}</td>
+                  
+                  <!-- Foto Profile / Wajah -->
+                  <td class="py-4 px-6 text-center">
+                    <div class="w-10 h-10 rounded-full bg-gray-200 mx-auto overflow-hidden border border-gray-200 flex items-center justify-center">
+                      <img v-if="pegawai.foto" :src="pegawai.foto" alt="Foto" class="w-full h-full object-cover" />
+                      <UserIcon v-else class="w-5 h-5 text-gray-400" />
+                    </div>
+                  </td>
+
+                  <td class="py-4 px-6 text-gray-900 font-semibold">
+                    <div>{{ pegawai.name }}</div>
+                    <div class="text-[11px] text-gray-400 font-normal">{{ pegawai.email }}</div>
+                  </td>
                   <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.nip }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.posisi }}</td>
-                  <td class="py-4 px-6 text-gray-900 font-semibold">{{ pegawai.dataWajah }}</td>
+                  <td class="py-4 px-6 text-gray-900 font-semibold">
+                    <div class="flex items-center space-x-2">
+                      <span>{{ pegawai.jabatan || '-' }}</span>
+                      <span 
+                        :class="[
+                          'px-2 py-0.5 rounded-md text-[10px] font-bold',
+                          pegawai.status_aktif ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        ]"
+                      >
+                        {{ pegawai.status_aktif ? 'Aktif' : 'Nonaktif' }}
+                      </span>
+                    </div>
+                  </td>
                   <td class="py-4 px-6">
                     <div class="flex items-center justify-center space-x-2">
-                      <button class="bg-[#0B1A30] hover:bg-slate-800 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition">Edit</button>
+                      <button 
+                        @click="handleOpenModal(pegawai)"
+                        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                      >
+                        Edit
+                      </button>
                       <button 
                         @click="handleDelete(pegawai.id)"
-                        class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition"
-                      >Delete</button>
+                        class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
 
                 <tr v-if="paginatedPegawai.length === 0">
-                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Tidak ada data pegawai yang ditemukan.</td>
+                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">
+                    {{ isLoading ? 'Memuat data pegawai...' : 'Tidak ada data pegawai yang ditemukan.' }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -422,7 +499,7 @@ const handleLogout = () => {
       </main>
     </div>
 
-    <!-- MODAL TAMBAH PEGAWAI -->
+    <!-- MODAL TAMBAH / EDIT PEGAWAI -->
     <div 
       v-if="isModalOpen" 
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs transition-opacity overflow-y-auto"
@@ -431,65 +508,113 @@ const handleLogout = () => {
         
         <!-- Modal Header -->
         <div class="text-center mb-6">
-          <h2 class="text-xl sm:text-2xl font-bold text-gray-900">Tambah Pegawai</h2>
-          <p class="text-xs text-gray-500 mt-1">Isi detail yang diperlukan untuk menambahkan karyawan.</p>
+          <h2 class="text-xl sm:text-2xl font-bold text-gray-900">{{ isEditMode ? 'Edit Data Pegawai' : 'Tambah Pegawai Baru' }}</h2>
+          <p class="text-xs text-gray-500 mt-1">Lengkapi form dan pasang foto wajah pegawai untuk sistem presensi.</p>
         </div>
 
         <!-- Form Modal -->
-        <form @submit.prevent="handleTambahData" class="space-y-4">
+        <form @submit.prevent="handleSubmit" class="space-y-4">
+          
+          <!-- NIP -->
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">NIP</label>
             <input
               v-model="formPegawai.nip"
               type="text"
-              class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              placeholder="Contoh: 315720393"
+              class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               required
             />
           </div>
 
+          <!-- Nama Pegawai -->
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Nama Pegawai</label>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Nama Lengkap</label>
             <input
-              v-model="formPegawai.nama"
+              v-model="formPegawai.name"
               type="text"
-              class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              placeholder="Contoh: Muh Fahrul Fahrezi"
+              class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               required
             />
           </div>
 
-          <!-- Input Email -->
+          <!-- Email -->
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Email</label>
             <input
               v-model="formPegawai.email"
               type="email"
-              class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              placeholder="contoh@setneg.go.id"
+              class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               required
             />
           </div>
 
-          <!-- Input Posisi -->
+          <!-- Password (Opsional jika Edit) -->
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Posisi</label>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              Password {{ isEditMode ? '(Isi jika ingin diubah)' : '' }}
+            </label>
             <input
-              v-model="formPegawai.posisi"
-              type="text"
-              class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-              required
+              v-model="formPegawai.password"
+              type="password"
+              placeholder="******"
+              :required="!isEditMode"
+              class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
             />
           </div>
 
-          <!-- Area Ambil Gambar Muka -->
+          <!-- Jabatan & Status Aktif -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">Jabatan / Posisi</label>
+              <input
+                v-model="formPegawai.jabatan"
+                type="text"
+                placeholder="Contoh: Staff IT"
+                class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">Status Aktif</label>
+              <select
+                v-model="formPegawai.status_aktif"
+                class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              >
+                <option :value="true">Aktif</option>
+                <option :value="false">Nonaktif</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Area Ambil Gambar Muka (Webcam) -->
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Ambil Gambar Muka</label>
-            <div class="bg-gray-500 rounded-2xl h-52 flex items-center justify-center relative overflow-hidden">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-gray-700">Ambil Foto Wajah (Data Wajah)</label>
+              <button 
+                v-if="fotoPreview" 
+                type="button" 
+                @click="fotoPreview = null; startCamera()"
+                class="text-[11px] text-blue-600 hover:underline font-semibold flex items-center space-x-1"
+              >
+                <RefreshCw class="w-3 h-3" />
+                <span>Foto Ulang</span>
+              </button>
+            </div>
+
+            <div class="bg-gray-800 rounded-2xl h-52 flex items-center justify-center relative overflow-hidden">
               <canvas ref="canvasRef" class="w-full h-full object-cover"></canvas>
               <video ref="videoRef" class="hidden" autoplay muted playsinline></video>
+              
               <div v-if="!kameraAktif && !fotoPreview" class="absolute inset-0 flex items-center justify-center">
-                <div class="w-16 h-12 bg-gray-300 rounded-lg flex items-center justify-center shadow-xs">
-                  <Camera class="w-8 h-8 text-gray-600" />
+                <div class="w-16 h-12 bg-gray-700 rounded-lg flex items-center justify-center shadow-xs">
+                  <Camera class="w-8 h-8 text-gray-300" />
                 </div>
               </div>
+
+              <!-- Preview Foto -->
               <div v-if="!kameraAktif && fotoPreview" class="absolute inset-0">
                 <img :src="fotoPreview" alt="Preview Foto" class="w-full h-full object-cover" />
               </div>
@@ -497,9 +622,9 @@ const handleLogout = () => {
               <button
                 type="button"
                 @click="kameraAktif ? capturePhoto() : startCamera()"
-                class="absolute bottom-4 bg-white hover:bg-gray-100 text-blue-600 border border-blue-600 text-xs font-semibold px-4 py-1.5 rounded-lg shadow-xs transition"
+                class="absolute bottom-4 bg-white hover:bg-gray-100 text-blue-600 border border-blue-600 text-xs font-semibold px-4 py-1.5 rounded-lg shadow-md transition"
               >
-                {{ kameraAktif ? 'Capture' : 'Ambil Gambar' }}
+                {{ kameraAktif ? 'Ambil Jepretan' : (fotoPreview ? 'Buka Kamera Lagi' : 'Buka Kamera') }}
               </button>
             </div>
           </div>
@@ -508,9 +633,10 @@ const handleLogout = () => {
           <div class="flex items-center space-x-3 pt-4">
             <button
               type="submit"
-              class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150"
+              :disabled="isSubmitting"
+              class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150 disabled:opacity-50"
             >
-              Tambah Data
+              {{ isSubmitting ? 'Menyimpan...' : (isEditMode ? 'Update Data' : 'Tambah Pegawai') }}
             </button>
             <button
               type="button"
@@ -520,37 +646,32 @@ const handleLogout = () => {
               Batal
             </button>
           </div>
+
         </form>
 
       </div>
     </div>
+
     <!-- DRAWER NOTIFIKASI -->
     <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
       <div class="flex items-center justify-between pb-3 border-b border-gray-100">
         <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
-        <div class="flex items-center space-x-3">
-          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
-          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
-        </div>
+        <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
       </div>
       <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
         <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1">
           <div class="flex items-center space-x-3">
             <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
-              <User class="w-4 h-4" />
+              <UserIcon class="w-4 h-4" />
             </div>
             <div>
               <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
               <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
-              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
             </div>
-          </div>
-          <div class="flex items-center space-x-1">
-            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
-            <ChevronRight class="w-4 h-4 text-gray-400" />
           </div>
         </div>
       </div>
     </div>
+
   </div>
 </template>

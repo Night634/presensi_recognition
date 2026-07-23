@@ -1,4 +1,3 @@
-
 <template>
   <div class="flex h-screen bg-[#F0F4F8] font-sans text-gray-900 overflow-hidden relative">
     
@@ -82,25 +81,25 @@
       <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
         <div>
           <p class="text-xs font-semibold text-gray-400 mb-1">Hello, Admin</p>
-          <h1 class="text-2xl font-bold text-gray-950">Welcome to Wilayah Lokasi Absensi</h1>
+          <h1 class="text-2xl font-bold text-gray-950">Wilayah Lokasi Absensi</h1>
         </div>
 
-        <!-- LEAFLET MAP -->
+        <!-- LEAFLET MAP UTAMA -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div ref="mapContainer" class="w-full h-[350px] sm:h-[400px]"></div>
+          <div ref="mapContainer" class="w-full h-[350px] sm:h-[400px] relative z-0"></div>
         </div>
 
         <!-- SEARCH & ADD -->
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
           <div class="relative w-full sm:w-80">
-            <input v-model="searchQuery" type="text" placeholder="Search..." class="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-xs" />
+            <input v-model="searchQuery" type="text" placeholder="Cari nama gedung..." class="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-xs" />
             <Search class="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
           </div>
           <button 
-            @click="handleOpenModal" 
+            @click="handleOpenModal()" 
             class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-md shadow-blue-500/20 transition duration-150 text-center"
           >
-            + Tambah Wilayah
+            + Buat Area Polygon
           </button>
         </div>
 
@@ -111,31 +110,41 @@
               <thead>
                 <tr class="border-b border-gray-100 text-xs font-bold text-gray-800 bg-white">
                   <th class="py-4 px-6 text-center w-16">No</th>
-                  <th class="py-4 px-6">Nama Lokasi</th>
-                  <th class="py-4 px-6">Latitude</th>
-                  <th class="py-4 px-6">Longitude</th>
-                  <th class="py-4 px-6">Radius (meter)</th>
+                  <th class="py-4 px-6">Nama Gedung</th>
+                  <th class="py-4 px-6">Jumlah Titik Sudut</th>
+                  <th class="py-4 px-6">Titik Pusat (Center)</th>
                   <th class="py-4 px-6 text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 text-sm font-semibold text-gray-900">
                 <tr v-for="(item, index) in paginatedLokasi" :key="item.id" class="hover:bg-gray-50/80 transition">
                   <td class="py-4 px-6 text-center">{{ displayFrom + index }}</td>
-                  <td class="py-4 px-6">{{ item.nama }}</td>
-                  <td class="py-4 px-6">{{ item.latitude }}</td>
-                  <td class="py-4 px-6">{{ item.longitude }}</td>
-                  <td class="py-4 px-6">{{ item.radius }}</td>
+                  <td class="py-4 px-6">{{ item.nama_gedung }}</td>
+                  <td class="py-4 px-6">
+                    <span class="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md text-xs font-bold">
+                      {{ item.coordinates ? item.coordinates.length : 0 }} Titik
+                    </span>
+                  </td>
+                  <td class="py-4 px-6 text-xs text-gray-500 font-mono">
+                    {{ getCenterCoordinate(item.coordinates) }}
+                  </td>
                   <td class="py-4 px-6">
                     <div class="flex items-center justify-center space-x-2">
                       <button 
                         @click="handleFocusMap(item)"
-                        class="bg-[#0B1A30] hover:bg-slate-800 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition"
+                        class="bg-[#0B1A30] hover:bg-slate-800 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
                       >
                         Lihat
                       </button>
                       <button 
+                        @click="handleOpenModal(item)"
+                        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                      >
+                        Edit
+                      </button>
+                      <button 
                         @click="handleDelete(item.id)"
-                        class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition"
+                        class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
                       >
                         Hapus
                       </button>
@@ -143,7 +152,9 @@
                   </td>
                 </tr>
                 <tr v-if="paginatedLokasi.length === 0">
-                  <td colspan="6" class="py-8 text-center text-gray-400 text-sm">Belum ada wilayah lokasi yang ditambahkan.</td>
+                  <td colspan="5" class="py-8 text-center text-gray-400 text-sm">
+                    {{ isLoading ? 'Memuat data...' : 'Belum ada wilayah polygon yang ditambahkan.' }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -171,97 +182,76 @@
       </main>
     </div>
 
-    <!-- DRAWER NOTIFIKASI -->
-    <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
-      <div class="flex items-center justify-between pb-3 border-b border-gray-100">
-        <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
-        <div class="flex items-center space-x-3">
-          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
-          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
-        </div>
-      </div>
-      <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1">
-          <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
-              <User class="w-4 h-4" />
-            </div>
-            <div>
-              <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
-              <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
-              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
-            </div>
-          </div>
-          <div class="flex items-center space-x-1">
-            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
-            <ChevronRight class="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- MODAL TAMBAH LOKASI -->
+    <!-- MODAL TAMBAH / EDIT POLYGON -->
     <div 
       v-if="isModalOpen" 
       class="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs transition-opacity overflow-y-auto"
     >
-      <div class="bg-white rounded-2xl w-full max-w-2xl p-6 sm:p-8 shadow-2xl relative my-8 border border-gray-100 z-[10000]">
+      <div class="bg-white rounded-2xl w-full max-w-3xl p-6 sm:p-8 shadow-2xl relative my-8 border border-gray-100 z-[10000]">
         
         <!-- Modal Header -->
-        <div class="text-center mb-6">
-          <h2 class="text-xl sm:text-2xl font-bold text-gray-900">Tambah Wilayah Lokasi</h2>
-          <p class="text-xs text-gray-500 mt-1">Klik pada peta untuk menentukan titik lokasi absensi</p>
+        <div class="text-center mb-4">
+          <h2 class="text-xl sm:text-2xl font-bold text-gray-900">{{ isEditMode ? 'Edit Area Polygon' : 'Tambah Area Polygon' }}</h2>
+          <p class="text-xs text-gray-500 mt-1">Klik pada peta minimal 3 titik untuk membentuk batas wilayah absensi</p>
         </div>
 
-        <form @submit.prevent="handleTambahLokasi" class="space-y-4">
-          <!-- Nama Lokasi -->
+        <form @submit.prevent="handleSubmit" class="space-y-4">
+          <!-- Nama Gedung -->
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Nama Lokasi</label>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Nama Gedung / Area</label>
             <input
-              v-model="formLokasi.nama"
+              v-model="formLokasi.nama_gedung"
               type="text"
-              placeholder="Contoh: Kantor Pusat Lt. 1"
+              placeholder="Contoh: Komplek Gedung Utama"
               class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               required
             />
           </div>
 
-          <!-- Map Mini untuk Pilih Titik -->
+          <!-- Peta Interaktif Gambar Polygon -->
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Pilih Titik Lokasi di Peta</label>
-            <div ref="modalMapContainer" class="w-full h-[250px] rounded-xl overflow-hidden border border-gray-200 z-0"></div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-semibold text-gray-700">Gambar Polygon di Peta</label>
+              <div class="space-x-2">
+                <button 
+                  type="button" 
+                  @click="handleUndoPoint" 
+                  :disabled="formLokasi.coordinates.length === 0"
+                  class="text-xs text-amber-600 hover:underline font-semibold disabled:opacity-40"
+                >
+                  ↺ Undo Titik
+                </button>
+                <button 
+                  type="button" 
+                  @click="handleResetPoints" 
+                  :disabled="formLokasi.coordinates.length === 0"
+                  class="text-xs text-red-600 hover:underline font-semibold disabled:opacity-40"
+                >
+                  ✕ Reset Peta
+                </button>
+              </div>
+            </div>
+
+            <div ref="modalMapContainer" class="w-full h-[300px] rounded-xl overflow-hidden border border-gray-200 relative z-0"></div>
+            
+            <p class="text-[11px] text-gray-400 mt-1">
+              Terpilih: <strong class="text-blue-600">{{ formLokasi.coordinates.length }} titik</strong> 
+              <span v-if="formLokasi.coordinates.length < 3" class="text-red-500 ml-1">(butuh minimal 3 titik untuk membuat area)</span>
+              <span v-else class="text-green-600 ml-1">✓ Area Valid</span>
+            </p>
           </div>
 
-          <!-- Koordinat & Radius -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 mb-1">Latitude</label>
-              <input
-                v-model="formLokasi.latitude"
-                type="text"
-                readonly
-                class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 mb-1">Longitude</label>
-              <input
-                v-model="formLokasi.longitude"
-                type="text"
-                readonly
-                class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 mb-1">Radius (meter)</label>
-              <input
-                v-model="formLokasi.radius"
-                type="number"
-                placeholder="100"
-                min="10"
-                class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                required
-              />
+          <!-- List Koordinat Terpilih (Collapsible/Preview) -->
+          <div v-if="formLokasi.coordinates.length > 0" class="bg-gray-50 p-3 rounded-lg border border-gray-200 max-h-24 overflow-y-auto">
+            <p class="text-[10px] font-bold text-gray-500 uppercase mb-1">Daftar Koordinat [Lat, Lng]:</p>
+            <div class="flex flex-wrap gap-1.5">
+              <span 
+                v-for="(coord, idx) in formLokasi.coordinates" 
+                :key="idx"
+                class="bg-white border border-gray-200 px-2 py-0.5 rounded text-[10px] font-mono text-gray-700"
+              >
+                #{{ idx+1 }}: [{{ coord[0] }}, {{ coord[1] }}]
+              </span>
             </div>
           </div>
 
@@ -269,9 +259,10 @@
           <div class="flex items-center space-x-3 pt-4">
             <button
               type="submit"
-              class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150"
+              :disabled="isSubmitting || formLokasi.coordinates.length < 3"
+              class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150 disabled:opacity-50"
             >
-              Simpan Wilayah
+              {{ isSubmitting ? 'Menyimpan...' : (isEditMode ? 'Update Polygon' : 'Simpan Polygon') }}
             </button>
             <button
               type="button"
@@ -292,6 +283,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, MapPin, LogOut, Bell, Search, 
@@ -300,7 +292,7 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// Fix Leaflet default icon issue
+// Fix Leaflet Default Icon
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -309,104 +301,145 @@ L.Icon.Default.mergeOptions({
 })
 
 const router = useRouter()
+const API_URL = 'http://localhost:8000/api/lokasi'
+
+const getAuthHeader = () => ({
+  headers: { Authorization: `Bearer ${sessionStorage.getItem('admin_token')}` }
+})
 
 // ===== STATE =====
 const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
 const isModalOpen = ref(false)
+const isEditMode = ref(false)
+const isLoading = ref(false)
+const isSubmitting = ref(false)
+const editingId = ref(null)
+
 const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(4)
 const activeMenu = ref('Lokasi')
 
-// Refs for Map
+const lokasiList = ref([])
+
+// Map Refs
 const mapContainer = ref(null)
 const modalMapContainer = ref(null)
 let mainMap = null
 let modalMap = null
-let mainLayers = [] // store marker + circle pairs
+let mainLayers = []
+let modalLayers = [] // Menampung marker & polygon sementara di modal
 
-// Form
+// Form State
 const formLokasi = ref({
-  nama: '',
-  latitude: '',
-  longitude: '',
-  radius: 100
+  nama_gedung: '',
+  coordinates: [] // Array of [lat, lng]
 })
 
 // Navigation
 const navItems = [
-  { name: 'Dashboard', icon: LayoutGrid, route: 'Dashboard' },
-  { name: 'Pegawai', icon: Users, route: 'Pegawai' },
-  { name: 'Presensi', icon: Scan, route: 'Presensi' },
-  { name: 'Cuti', icon: CalendarCheck, route: 'Cuti' },
-  { name: 'Lokasi', icon: MapPin, route: 'Lokasi' },
+  { name: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
+  { name: 'Pegawai', icon: Users, path: '/pegawai' },
+  { name: 'Presensi', icon: Scan, path: '/presensi' },
+  { name: 'Cuti', icon: CalendarCheck, path: '/cuti' },
+  { name: 'Lokasi', icon: MapPin, path: '/lokasi' },
 ]
 
 const navigateTo = (item) => {
   activeMenu.value = item.name
   isSidebarOpen.value = false
-  router.push({ name: item.route })
+  router.push(item.path)
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('username')
-  router.push({ name: 'Login' })
+  sessionStorage.clear()
+  router.replace({ name: 'Login' })
 }
 
-// ===== DUMMY DATA LOKASI =====
-const lokasiList = ref([
-  { id: 1, nama: 'Kantor Pusat Lt. 1', latitude: '-6.2088', longitude: '106.8456', radius: 100 },
-  { id: 2, nama: 'Kantor Pusat Lt. 2', latitude: '-6.2090', longitude: '106.8458', radius: 80 },
-  { id: 3, nama: 'Gedung Parkir Timur', latitude: '-6.2075', longitude: '106.8470', radius: 50 },
-  { id: 4, nama: 'Lapangan Upacara', latitude: '-6.2095', longitude: '106.8445', radius: 150 },
-  { id: 5, nama: 'Pintu Masuk Utama', latitude: '-6.2080', longitude: '106.8460', radius: 30 },
-])
+// ===== API CRUD =====
+const fetchLokasi = async () => {
+  isLoading.value = true
+  try {
+    const response = await axios.get(API_URL, getAuthHeader())
+    lokasiList.value = response.data
+    renderMainMapPolygons()
+  } catch (error) {
+    console.error('Gagal mengambil data lokasi:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
 
-// Notifications
-const notifications = ref([
-  { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
-  { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
-  { id: 3, name: 'Atchallah', action: 'Mengajukan Cuti', time: '15 min', unread: false },
-  { id: 4, name: 'Putra', action: 'Mengajukan Cuti', time: '16 min', unread: false },
-  { id: 5, name: 'thejoeswanson', action: 'High fived your workout', time: '18 min', unread: true },
-])
+const handleSubmit = async () => {
+  if (formLokasi.value.coordinates.length < 3) {
+    alert('Area Polygon membutuhkan minimal 3 titik!')
+    return
+  }
 
-const clearAllNotif = () => {
-  notifications.value = []
+  isSubmitting.value = true
+  try {
+    if (isEditMode.value) {
+      await axios.put(`${API_URL}/${editingId.value}`, formLokasi.value, getAuthHeader())
+    } else {
+      await axios.post(API_URL, formLokasi.value, getAuthHeader())
+    }
+    await fetchLokasi()
+    isModalOpen.value = false
+  } catch (error) {
+    console.error('Gagal menyimpan polygon:', error)
+    alert('Gagal menyimpan area polygon!')
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const handleDelete = async (id) => {
+  if (!confirm('Apakah Anda yakin ingin menghapus lokasi ini?')) return
+  try {
+    await axios.delete(`${API_URL}/${id}`, getAuthHeader())
+    await fetchLokasi()
+  } catch (error) {
+    console.error('Gagal menghapus lokasi:', error)
+  }
+}
+
+// ===== HELPER FUNCTIONS =====
+const getCenterCoordinate = (coords) => {
+  if (!coords || coords.length === 0) return '-'
+  let sumLat = 0
+  let sumLng = 0
+  coords.forEach(c => {
+    sumLat += parseFloat(c[0])
+    sumLng += parseFloat(c[1])
+  })
+  const avgLat = (sumLat / coords.length).toFixed(5)
+  const avgLng = (sumLng / coords.length).toFixed(5)
+  return `${avgLat}, ${avgLng}`
 }
 
 // ===== COMPUTED =====
 const filteredLokasi = computed(() => {
   return lokasiList.value.filter(item => 
-    item.nama.toLowerCase().includes(searchQuery.value.toLowerCase())
+    item.nama_gedung.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredLokasi.value.length / pageSize.value)))
-
 const paginatedLokasi = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredLokasi.value.slice(start, start + pageSize.value)
 })
-
 const displayFrom = computed(() => filteredLokasi.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
 const displayTo = computed(() => Math.min(filteredLokasi.value.length, currentPage.value * pageSize.value))
 
-watch(searchQuery, () => {
-  currentPage.value = 1
-})
-
-const goToPrev = () => {
-  if (currentPage.value > 1) currentPage.value -= 1
-}
-
-const goToNext = () => {
-  if (currentPage.value < totalPages.value) currentPage.value += 1
-}
+watch(searchQuery, () => { currentPage.value = 1 })
+const goToPrev = () => { if (currentPage.value > 1) currentPage.value -= 1 }
+const goToNext = () => { if (currentPage.value < totalPages.value) currentPage.value += 1 }
 
 // ===== LEAFLET MAP FUNCTIONS =====
+
+// 1. Peta Utama
 function initMainMap() {
   if (!mapContainer.value || mainMap) return
 
@@ -417,56 +450,50 @@ function initMainMap() {
   })
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    attribution: '&copy; OpenStreetMap',
     maxZoom: 19
   }).addTo(mainMap)
 
-  // Wait for map to load, then render markers
-  mainMap.whenReady(() => {
-    renderMainMapMarkers()
-  })
+  mainMap.whenReady(() => renderMainMapPolygons())
 }
 
-function renderMainMapMarkers() {
-  // Clear existing layers
-  mainLayers.forEach(layer => {
-    if (layer.marker) mainMap.removeLayer(layer.marker)
-    if (layer.circle) mainMap.removeLayer(layer.circle)
-  })
+function renderMainMapPolygons() {
+  if (!mainMap) return
+
+  // Clean old layers
+  mainLayers.forEach(layer => mainMap.removeLayer(layer))
   mainLayers = []
 
   lokasiList.value.forEach(lok => {
-    const lat = parseFloat(lok.latitude)
-    const lng = parseFloat(lok.longitude)
-    const radius = lok.radius
-
-    // Custom marker icon
-    const marker = L.marker([lat, lng])
-      .bindPopup(`<strong>${lok.nama}</strong><br/>Radius: ${radius}m`)
+    if (lok.coordinates && lok.coordinates.length >= 3) {
+      const polygon = L.polygon(lok.coordinates, {
+        color: '#3B82F6',
+        fillColor: '#3B82F6',
+        fillOpacity: 0.25,
+        weight: 2
+      })
+      .bindPopup(`<strong>${lok.nama_gedung}</strong><br/>Jumlah Titik: ${lok.coordinates.length}`)
       .addTo(mainMap)
 
-    // Circle area
-    const circle = L.circle([lat, lng], {
-      radius: radius,
-      color: '#3B82F6',
-      fillColor: '#3B82F6',
-      fillOpacity: 0.1,
-      weight: 2,
-      opacity: 0.5
-    }).addTo(mainMap)
-
-    mainLayers.push({ marker, circle })
+      mainLayers.push(polygon)
+    }
   })
 }
 
+// 2. Peta Modal (Drawing Mode)
 function initModalMap() {
   nextTick(() => {
     if (!modalMapContainer.value) return
 
-    // Default ke Jakarta
+    // Tentukan Center Peta Modal
+    let initCenter = [-6.2088, 106.8456]
+    if (formLokasi.value.coordinates.length > 0) {
+      initCenter = formLokasi.value.coordinates[0]
+    }
+
     modalMap = L.map(modalMapContainer.value, {
-      center: [-6.2088, 106.8456],
-      zoom: 15,
+      center: initCenter,
+      zoom: 16,
       zoomControl: true
     })
 
@@ -475,139 +502,122 @@ function initModalMap() {
       maxZoom: 19
     }).addTo(modalMap)
 
+    // Render ulang titik yang sudah ada (jika Edit Mode)
+    updateModalMapLayers()
+
+    // Event Klik Peta untuk Tambah Titik
     modalMap.on('click', (e) => {
-      const { lat, lng } = e.latlng
-      formLokasi.value.latitude = lat.toFixed(6)
-      formLokasi.value.longitude = lng.toFixed(6)
-      updateModalMarker(lat, lng)
+      const lat = parseFloat(e.latlng.lat.toFixed(8))
+      const lng = parseFloat(e.latlng.lng.toFixed(8))
+      
+      formLokasi.value.coordinates.push([lat, lng])
+      updateModalMapLayers()
     })
 
-    // Fix map rendering inside modal
     setTimeout(() => {
       modalMap.invalidateSize()
-    }, 500)
+    }, 300)
   })
 }
 
-let modalMarkerLayer = null
-let modalCircleLayer = null
+function updateModalMapLayers() {
+  if (!modalMap) return
 
-function updateModalMarker(lat, lng) {
-  // Remove existing marker & circle
-  if (modalMarkerLayer) {
-    modalMap.removeLayer(modalMarkerLayer)
-    modalMarkerLayer = null
+  // Bersihkan layer sebelumnya di modal
+  modalLayers.forEach(l => modalMap.removeLayer(l))
+  modalLayers = []
+
+  const coords = formLokasi.value.coordinates
+
+  // 1. Buat Marker untuk setiap titik
+  coords.forEach((c, i) => {
+    const marker = L.circleMarker(c, {
+      radius: 5,
+      color: '#2563EB',
+      fillColor: '#FFFFFF',
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(modalMap)
+    
+    modalLayers.push(marker)
+  })
+
+  // 2. Jika 2 titik: Gambar Garis (Polyline)
+  if (coords.length === 2) {
+    const polyline = L.polyline(coords, { color: '#3B82F6', weight: 2, dashArray: '4, 4' }).addTo(modalMap)
+    modalLayers.push(polyline)
   }
-  if (modalCircleLayer) {
-    modalMap.removeLayer(modalCircleLayer)
-    modalCircleLayer = null
+
+  // 3. Jika >= 3 titik: Gambar Polygon
+  if (coords.length >= 3) {
+    const polygon = L.polygon(coords, {
+      color: '#3B82F6',
+      fillColor: '#3B82F6',
+      fillOpacity: 0.3,
+      weight: 2
+    }).addTo(modalMap)
+    
+    modalLayers.push(polygon)
   }
+}
 
-  const radius = parseInt(formLokasi.value.radius) || 100
+// Control Buttons Peta Modal
+const handleUndoPoint = () => {
+  formLokasi.value.coordinates.pop()
+  updateModalMapLayers()
+}
 
-  // Add marker
-  modalMarkerLayer = L.marker([lat, lng]).addTo(modalMap)
-
-  // Add circle
-  modalCircleLayer = L.circle([lat, lng], {
-    radius: radius,
-    color: '#3B82F6',
-    fillColor: '#3B82F6',
-    fillOpacity: 0.15,
-    weight: 2,
-    opacity: 0.5
-  }).addTo(modalMap)
+const handleResetPoints = () => {
+  formLokasi.value.coordinates = []
+  updateModalMapLayers()
 }
 
 // ===== HANDLERS =====
-const handleOpenModal = () => {
-  formLokasi.value = { nama: '', latitude: '', longitude: '', radius: 100 }
+const handleOpenModal = (item = null) => {
+  if (item) {
+    isEditMode.value = true
+    editingId.value = item.id
+    formLokasi.value = {
+      nama_gedung: item.nama_gedung,
+      // Buat deep copy array koordinat
+      coordinates: item.coordinates ? JSON.parse(JSON.stringify(item.coordinates)) : []
+    }
+  } else {
+    isEditMode.value = false
+    editingId.value = null
+    formLokasi.value = { nama_gedung: '', coordinates: [] }
+  }
   isModalOpen.value = true
 }
 
-const handleTambahLokasi = () => {
-  if (formLokasi.value.nama && formLokasi.value.latitude && formLokasi.value.longitude) {
-    lokasiList.value.push({
-      id: lokasiList.value.length + 1,
-      nama: formLokasi.value.nama,
-      latitude: formLokasi.value.latitude,
-      longitude: formLokasi.value.longitude,
-      radius: parseInt(formLokasi.value.radius) || 100
-    })
-    
-    // Refresh main map markers
-    renderMainMapMarkers()
-    
-    isModalOpen.value = false
-  }
-}
-
-const handleDelete = (id) => {
-  lokasiList.value = lokasiList.value.filter(item => item.id !== id)
-  renderMainMapMarkers()
-}
-
 const handleFocusMap = (item) => {
-  if (mainMap) {
-    mainMap.flyTo([parseFloat(item.latitude), parseFloat(item.longitude)], 16, {
-      duration: 1
-    })
+  if (mainMap && item.coordinates && item.coordinates.length > 0) {
+    const polygon = L.polygon(item.coordinates)
+    mainMap.fitBounds(polygon.getBounds(), { padding: [50, 50], maxZoom: 18 })
   }
 }
 
-// ===== LIFECYCLE =====
+// ===== LIFECYCLE & WATCHERS =====
 onMounted(() => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-  if (!isAuthenticated) {
-    router.push({ name: 'Login' })
-    return
-  }
-
-  setTimeout(() => {
-    initMainMap()
-  }, 300)
+  fetchLokasi()
+  setTimeout(() => initMainMap(), 300)
 })
 
 onUnmounted(() => {
-  if (mainMap) {
-    mainMap.remove()
-    mainMap = null
-  }
-  if (modalMap) {
-    modalMap.remove()
-    modalMap = null
-  }
+  if (mainMap) mainMap.remove()
+  if (modalMap) modalMap.remove()
 })
 
-// Watch radius in modal to update circle
-watch(() => formLokasi.value.radius, (newVal) => {
-  if (modalMap && formLokasi.value.latitude && formLokasi.value.longitude) {
-    updateModalMarker(parseFloat(formLokasi.value.latitude), parseFloat(formLokasi.value.longitude))
-  }
-})
-
-// Watch modal open/close to init map
 watch(isModalOpen, async (val) => {
   if (val) {
     await nextTick()
-    setTimeout(() => {
-      initModalMap()
-    }, 300)
+    setTimeout(() => initModalMap(), 200)
   } else {
-    setTimeout(() => {
-      // Clean up modal map
-      if (modalMap) {
-        modalMap.remove()
-        modalMap = null
-      }
-      if (modalMarkerLayer) {
-        modalMarkerLayer = null
-      }
-      if (modalCircleLayer) {
-        modalCircleLayer = null
-      }
-    }, 300)
+    if (modalMap) {
+      modalMap.remove()
+      modalMap = null
+      modalLayers = []
+    }
   }
 })
 </script>
-

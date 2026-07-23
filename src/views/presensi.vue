@@ -9,13 +9,6 @@ import {
 
 const router = useRouter()
 
-onMounted(() => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-  if (!isAuthenticated) {
-    router.push({ name: 'Login' })
-  }
-})
-
 // State Navigation & Layout
 const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
