@@ -7,6 +7,7 @@ import {
   Users, 
   Scan, 
   CalendarCheck, 
+  MapPin,
   LogOut, 
   Bell, 
   Search, 
@@ -191,6 +192,7 @@ const navItems = [
   { name: 'Pegawai', icon: Users, route: 'Pegawai' },
   { name: 'Presensi', icon: Scan, route: 'Presensi' },
   { name: 'Cuti', icon: CalendarCheck, route: 'Cuti' },
+  { name: 'Lokasi', icon: MapPin, route: 'Lokasi' },
 ]
 
 const navigateTo = (item) => {

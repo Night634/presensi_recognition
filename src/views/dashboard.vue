@@ -170,11 +170,13 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import logoSetneg from '../assets/logosetneg.png'
+import axios from 'axios'
 import { 
   LayoutGrid, 
   Users, 
   Scan, 
   CalendarCheck, 
+  MapPin,
   LogOut, 
   Bell, 
   UserCheck, 
@@ -189,9 +191,14 @@ import {
 const router = useRouter()
 
 onMounted(() => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-  if (!isAuthenticated) {
-    router.push({ name: 'Login' })
+  const adminUserData = sessionStorage.getItem('admin_user')
+  if (adminUserData) {
+    try {
+      const parsedUser = JSON.parse(adminUserData)
+      username.value = parsedUser.nama || parsedUser.nip || 'Admin'
+    } catch (e) {
+      username.value = 'Admin'
+    }
   }
 })
 
@@ -232,6 +239,7 @@ const navItems = [
   { name: 'Pegawai', icon: Users, route: 'Pegawai' },
   { name: 'Presensi', icon: Scan, route: 'Presensi' },
   { name: 'Cuti', icon: CalendarCheck, route: 'Cuti' },
+  { name: 'Lokasi', icon: MapPin, route: 'Lokasi' },
 ]
 
 const navigateTo = (item) => {
@@ -254,9 +262,24 @@ const activities = [
 ]
 
 // Fungsi Logout
-const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('username')
-  router.push({ name: 'Login' })
+const handleLogout = async () => {
+  try {
+    const token = sessionStorage.getItem('admin_token')
+
+    // Opsional: Beritahu backend jika ingin hapus token Sanctum di database
+    if (token) {
+      await axios.post('http://127.0.0.1:8000/api/admin/logout', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {}) // Catch diam-diam jika server sudah expired
+    }
+  } finally {
+    // 1. Bersihkan seluruh session
+    sessionStorage.removeItem('admin_token')
+    sessionStorage.removeItem('admin_user')
+    sessionStorage.clear() // Memastikan bersih total
+
+    // 2. Gunakan REPLACE agar histori /dashboard ditimpa halaman Login (tidak bisa di-back)
+    router.replace({ name: 'Login' })
+  }
 }
 </script>

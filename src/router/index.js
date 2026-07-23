@@ -30,6 +30,12 @@ const routes = [
     name: 'Cuti',
     component: () => import('../views/cuti.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/lokasi',
+    name: 'Lokasi',
+    component: () => import('../views/lokasi.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 
@@ -38,15 +44,16 @@ const router = createRouter({
   routes
 })
 
-// Navigation Guard
+// Navigation Guard menggunakan sessionStorage
 router.beforeEach((to, from, next) => {
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-  
-  if (to.meta.requiresAuth && !isAuthenticated) {
-    // Redirect to login if not authenticated
+  // Ubah ke sessionStorage
+  const token = sessionStorage.getItem('admin_token')
+
+  if (to.meta.requiresAuth && !token) {
+    // Jika akses route rahasia tanpa token -> Tendang ke Login
     next({ name: 'Login' })
-  } else if (to.name === 'Login' && isAuthenticated) {
-    // Redirect to dashboard if already logged in
+  } else if (to.name === 'Login' && token) {
+    // Jika sudah ada token lalu buka Login -> Lempar ke Dashboard
     next({ name: 'Dashboard' })
   } else {
     next()
@@ -54,4 +61,3 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
-

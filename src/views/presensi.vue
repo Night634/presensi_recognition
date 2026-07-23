@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import logoSetneg from '../assets/logosetneg.png'
 import { 
-  LayoutGrid, Users, Scan, CalendarCheck, LogOut, Bell, Search, 
+  LayoutGrid, Users, Scan, CalendarCheck, MapPin, LogOut, Bell, Search, 
   ArrowUpDown, ChevronLeft, ChevronRight, Menu, X, User
 } from 'lucide-vue-next'
 
@@ -29,6 +29,7 @@ const navItems = [
   { name: 'Pegawai', icon: Users, route: 'Pegawai' },
   { name: 'Presensi', icon: Scan, route: 'Presensi' },
   { name: 'Cuti', icon: CalendarCheck, route: 'Cuti' },
+  { name: 'Lokasi', icon: MapPin, route: 'Lokasi' },
 ]
 
 const navigateTo = (item) => {
