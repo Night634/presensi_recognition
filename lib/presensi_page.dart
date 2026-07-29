@@ -1,11 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main.dart'; // Variabel global 'cameras'
+
+enum LivenessStep { turnLeft, turnRight, completed }
 
 class PresensiPage extends StatefulWidget {
   const PresensiPage({super.key});
@@ -16,9 +20,16 @@ class PresensiPage extends StatefulWidget {
 
 class _PresensiPageState extends State<PresensiPage> {
   CameraController? _cameraController;
+  late FaceDetector _faceDetector;
 
   bool _isCameraInitialized = false;
   bool _isSubmitting = false;
+  bool _isProcessingFrame = false;
+  bool _isStreaming = false; // Flag status stream kamera
+
+  // State Liveness Detection
+  LivenessStep _currentLivenessStep = LivenessStep.turnLeft;
+  bool _isLivenessVerified = false;
 
   String _statusMessage = 'Mendeteksi posisi GPS...';
   Color _statusBorderColor = Colors.white;
@@ -29,16 +40,26 @@ class _PresensiPageState extends State<PresensiPage> {
   // Koordinat Kantor (Jl. Veteran)
   final double _officeLat = -6.168305;
   final double _officeLng = 106.824700;
-  final double _allowedRadius = 300.0; // Meter
+  final double _allowedRadius = 3000.0; // Meter
 
   @override
   void initState() {
     super.initState();
+    _initFaceDetector();
     _initCamera();
     _checkLocationAndRadius();
   }
 
-  // Inisialisasi Kamera Depan
+  // 1. Inisialisasi Google ML Kit Face Detector
+  void _initFaceDetector() {
+    final options = FaceDetectorOptions(
+      performanceMode: FaceDetectorMode.accurate,
+      enableTracking: true,
+    );
+    _faceDetector = FaceDetector(options: options);
+  }
+
+  // 2. Inisialisasi Kamera Depan & Image Stream untuk Liveness
   void _initCamera() async {
     if (cameras.isEmpty) return;
 
@@ -60,12 +81,94 @@ class _PresensiPageState extends State<PresensiPage> {
       setState(() {
         _isCameraInitialized = true;
       });
+
+      // Mulai Stream Per Frame untuk Membaca Gelengan Kepala
+      _cameraController!.startImageStream((CameraImage image) {
+        _isStreaming = true; // Set flag true saat streaming berjalan
+
+        if (!_isProcessingFrame && !_isLivenessVerified && _isInRadius && !_isSubmitting) {
+          _isProcessingFrame = true;
+          _processCameraFrame(image);
+        }
+      });
     } catch (e) {
       debugPrint('Error kamera: $e');
     }
   }
 
-  // Cek Lokasi GPS
+  // 3. Proses Logika Deteksi Tengok Kiri -> Tengok Kanan
+  Future<void> _processCameraFrame(CameraImage image) async {
+    try {
+      final inputImage = _getInputImageFromCameraImage(image);
+      if (inputImage == null) return;
+
+      final List<Face> faces = await _faceDetector.processImage(inputImage);
+
+      if (faces.isNotEmpty) {
+        final Face face = faces.first;
+        final double? headAngleY = face.headEulerAngleY; // (- = Kiri, + = Kanan)
+
+        if (headAngleY != null) {
+          // STEP 1: Deteksi Tengok Kiri (Angle < -20)
+          if (_currentLivenessStep == LivenessStep.turnLeft && headAngleY < -20) {
+            setState(() {
+              _currentLivenessStep = LivenessStep.turnRight;
+              _statusMessage = 'Bagus! Sekarang Tengok ke KANAN ➡️';
+              _statusBorderColor = Colors.amber;
+            });
+          }
+          // STEP 2: Deteksi Tengok Kanan (Angle > 20)
+          else if (_currentLivenessStep == LivenessStep.turnRight && headAngleY > 20) {
+            setState(() {
+              _currentLivenessStep = LivenessStep.completed;
+              _isLivenessVerified = true;
+              _statusMessage = 'Wajah Asli Terverifikasi! Memproses Presensi... ✅';
+              _statusBorderColor = const Color(0xFF006C49);
+            });
+
+            // Hentikan Stream & Langsung Submit Presensi Otomatis
+            await _cameraController!.stopImageStream();
+            _isStreaming = false; // Set flag false saat streaming berhenti
+            
+            _submitPresensi();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error Liveness: $e");
+    } finally {
+      _isProcessingFrame = false;
+    }
+  }
+
+  InputImage? _getInputImageFromCameraImage(CameraImage image) {
+    if (_cameraController == null) return null;
+    final camera = _cameraController!.description;
+    final sensorOrientation = camera.sensorOrientation;
+
+    final InputImageRotation rotation =
+        InputImageRotationValue.fromRawValue(sensorOrientation) ??
+            InputImageRotation.rotation0deg;
+
+    final InputImageFormat format =
+        InputImageFormatValue.fromRawValue(image.format.raw) ??
+            InputImageFormat.nv21;
+
+    if (image.planes.isEmpty) return null;
+    final plane = image.planes.first;
+
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: format,
+        bytesPerRow: plane.bytesPerRow,
+      ),
+    );
+  }
+
+  // 4. Cek Lokasi GPS (Disesuaikan dengan Geolocator v10)
   Future<void> _checkLocationAndRadius() async {
     try {
       LocationPermission permission = await Geolocator.checkPermission();
@@ -73,8 +176,9 @@ class _PresensiPageState extends State<PresensiPage> {
         permission = await Geolocator.requestPermission();
       }
 
+      // FIX: Pakai desiredAccuracy untuk Geolocator v10
       Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        desiredAccuracy: LocationAccuracy.high,
       );
       _currentPosition = position;
 
@@ -91,8 +195,8 @@ class _PresensiPageState extends State<PresensiPage> {
         _isInRadius = distance <= _allowedRadius;
 
         if (_isInRadius) {
-          _statusMessage = 'Posisikan wajah Anda lalu tekan tombol Presensi';
-          _statusBorderColor = const Color(0xFF006C49);
+          _statusMessage = 'Silakan Tengok ke KIRI ⬅️';
+          _statusBorderColor = Colors.blue;
         } else {
           _statusMessage = 'Di luar area kantor! (${distance.toStringAsFixed(1)}m)';
           _statusBorderColor = Colors.red;
@@ -102,13 +206,13 @@ class _PresensiPageState extends State<PresensiPage> {
       if (!mounted) return;
       setState(() {
         _isInRadius = true;
-        _statusMessage = 'Posisikan wajah Anda lalu tekan tombol Presensi';
-        _statusBorderColor = const Color(0xFF006C49);
+        _statusMessage = 'Silakan Tengok ke KIRI ⬅️';
+        _statusBorderColor = Colors.blue;
       });
     }
   }
 
-  // Eksekusi Ambil Foto & Kirim Presensi ke Laravel
+  // 5. Eksekusi Ambil Foto Snapshot & Kirim ke Backend Laravel
   Future<void> _submitPresensi() async {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
 
@@ -117,13 +221,9 @@ class _PresensiPageState extends State<PresensiPage> {
     });
 
     try {
-      // 1. Ambil Token dari SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       String token = prefs.getString('access_token') ?? prefs.getString('token') ?? '';
 
-      debugPrint('TOKEN DARI STORAGE: $token');
-
-      // Jika token tidak ada di storage, minta user login ulang
       if (token.isEmpty) {
         _showResultDialog(
           isSuccess: false,
@@ -138,14 +238,11 @@ class _PresensiPageState extends State<PresensiPage> {
         return;
       }
 
-      // 2. Capture Foto dari Kamera
       XFile imageFile = await _cameraController!.takePicture();
 
-      // 3. Setup Request Multipart HTTP
       String apiUrl = kIsWeb ? 'http://127.0.0.1:8000/api/presensi' : 'http://10.0.2.2:8000/api/presensi';
       var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
 
-      // Header Wajib Sanctum
       request.headers.addAll({
         'Authorization': 'Bearer $token',
         'Accept': 'application/json',
@@ -153,8 +250,8 @@ class _PresensiPageState extends State<PresensiPage> {
 
       request.fields['latitude'] = (_currentPosition?.latitude ?? _officeLat).toString();
       request.fields['longitude'] = (_currentPosition?.longitude ?? _officeLng).toString();
+      request.fields['is_liveness_verified'] = '1';
 
-      // Lampirkan Foto
       if (kIsWeb) {
         var bytes = await imageFile.readAsBytes();
         request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: 'presensi.jpg'));
@@ -162,7 +259,6 @@ class _PresensiPageState extends State<PresensiPage> {
         request.files.add(await http.MultipartFile.fromPath('image', imageFile.path));
       }
 
-      // 4. Kirim Request ke Laravel
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
 
@@ -171,7 +267,6 @@ class _PresensiPageState extends State<PresensiPage> {
       final resData = jsonDecode(response.body);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Format Waktu Saat Ini (Contoh: 07:30 WIB)
         DateTime now = DateTime.now();
         String formattedTime = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} WIB";
 
@@ -217,7 +312,7 @@ class _PresensiPageState extends State<PresensiPage> {
     }
   }
 
-  // Pop-up Dialog Custom Sesuai Design Rencana UI
+  // Dialog Custom
   void _showResultDialog({
     required bool isSuccess,
     String? userName,
@@ -255,7 +350,6 @@ class _PresensiPageState extends State<PresensiPage> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Icon Circle Hijau Soft
         Container(
           width: 90,
           height: 90,
@@ -270,8 +364,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 20),
-
-        // Judul
         const Text(
           'Presensi Berhasil!',
           style: TextStyle(
@@ -281,8 +373,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 10),
-
-        // Subtitle Ucapan Nama User
         RichText(
           textAlign: TextAlign.center,
           text: TextSpan(
@@ -298,8 +388,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 20),
-
-        // Card Detail (Waktu & Lokasi)
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -355,8 +443,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 24),
-
-        // Tombol Kembali ke Beranda
         SizedBox(
           width: double.infinity,
           height: 50,
@@ -384,22 +470,19 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 16),
-
-        // Footer ID Presensi
         Text(
-          'ID PRESENSI: ${presensiId ?? "PRE-20260722-001"}',
+          'ID PRESENSI: ${presensiId ?? "PRE-20260727-001"}',
           style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF), fontWeight: FontWeight.bold, letterSpacing: 0.5),
         ),
       ],
     );
   }
 
-  // Tampilan Pop-up GAGAL / DITOLAK
+  // Tampilan Pop-up GAGAL
   Widget _buildErrorPopUp(String? title, String? description, String? errorType, String? errorMessage) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Icon Circle Merah Soft
         Container(
           width: 90,
           height: 90,
@@ -414,8 +497,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 20),
-
-        // Judul Gagal
         Text(
           title ?? 'Presensi Ditolak',
           style: const TextStyle(
@@ -425,16 +506,12 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 10),
-
-        // Deskripsi Gagal
         Text(
           description ?? 'Maaf, wajah tidak dikenali atau lokasi Anda berada di luar radius kantor.',
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
         ),
         const SizedBox(height: 20),
-
-        // Box Informasi Kesalahan Teknis
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(14),
@@ -476,13 +553,31 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 24),
-
-        // Tombol Coba Lagi
         SizedBox(
           width: double.infinity,
           height: 50,
           child: ElevatedButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+              // Reset status liveness untuk mencoba ulang
+              setState(() {
+                _currentLivenessStep = LivenessStep.turnLeft;
+                _isLivenessVerified = false;
+                _statusMessage = 'Silakan Tengok ke KIRI ⬅️';
+                _statusBorderColor = Colors.blue;
+              });
+
+              // Jalankan ulang stream kamera
+              if (_cameraController != null && !_isStreaming) {
+                _isStreaming = true;
+                _cameraController!.startImageStream((CameraImage image) {
+                  if (!_isProcessingFrame && !_isLivenessVerified && _isInRadius && !_isSubmitting) {
+                    _isProcessingFrame = true;
+                    _processCameraFrame(image);
+                  }
+                });
+              }
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0052FF),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
@@ -502,8 +597,6 @@ class _PresensiPageState extends State<PresensiPage> {
           ),
         ),
         const SizedBox(height: 12),
-
-        // Text Button Hubungi Admin
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text(
@@ -518,6 +611,7 @@ class _PresensiPageState extends State<PresensiPage> {
   @override
   void dispose() {
     _cameraController?.dispose();
+    _faceDetector.close();
     super.dispose();
   }
 
@@ -561,7 +655,7 @@ class _PresensiPageState extends State<PresensiPage> {
             ),
           ),
 
-          // 3. Banner Petunjuk
+          // 3. Banner Petunjuk Gerakan Liveness & Status
           Positioned(
             top: 20,
             left: 20,
@@ -569,7 +663,7 @@ class _PresensiPageState extends State<PresensiPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.75),
+                color: Colors.black.withOpacity(0.85),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: _statusBorderColor,
@@ -581,44 +675,58 @@ class _PresensiPageState extends State<PresensiPage> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
           ),
 
-          // 4. TOMBOL PRESENSI MANUAL
+          // 4. Loading / Indicator Status di Bagian Bawah
           Positioned(
             bottom: 40,
             left: 40,
             right: 40,
-            child: ElevatedButton(
-              onPressed: (_isSubmitting || !_isInRadius) ? null : _submitPresensi,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF006C49),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(30),
               ),
-              child: _isSubmitting
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt, color: Colors.white),
-                        SizedBox(width: 8),
-                        Text(
-                          'AMBIL FOTO & PRESENSI',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                      ],
-                    ),
+              child: Center(
+                child: _isSubmitting
+                    ? const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Mengirim Data Presensi...',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _isLivenessVerified ? Icons.check_circle : Icons.face,
+                            color: _isLivenessVerified ? Colors.greenAccent : Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isLivenessVerified
+                                ? 'Liveness Sukses'
+                                : 'Ikuti Petunjuk di Atas',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+              ),
             ),
           ),
         ],
