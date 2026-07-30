@@ -1,18 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:camera/camera.dart';
 import 'splash_screen.dart';
 
-// Variable global untuk menyimpan daftar kamera
-List<CameraDescription> cameras = [];
-
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    cameras = await availableCameras();
-  } catch (e) {
-    debugPrint('Gagal mendapatkan kamera: $e');
-  }
   runApp(const MyApp());
 }
 

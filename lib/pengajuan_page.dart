@@ -41,32 +41,53 @@ class _PengajuanPageState extends State<PengajuanPage> {
   }
 
   // 1. Memuat Data Riwayat Tersimpan dari SharedPreferences Permanen
+  // Mengambil Riwayat Pengajuan Asli dari Backend Laravel
   Future<void> _loadSavedRiwayat() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? savedData = prefs.getString('saved_riwayat_pengajuan');
+    final token = prefs.getString('token') ?? '';
 
-    if (savedData != null && savedData.isNotEmpty) {
-      try {
-        List<dynamic> decodedList = jsonDecode(savedData);
+    try {
+      final response = await http.get(
+        Uri.parse(_getApiUrl()),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        List<dynamic> listData = data['data'];
+
         setState(() {
-          _listRiwayatTerakhir = decodedList.map((item) {
+          _listRiwayatTerakhir = listData.map((item) {
+            String status = item['status'] ?? 'PENDING';
+            Color textColor = const Color(0xFFD97706);
+            Color bgColor = const Color(0xFFFEF3C7);
+
+            if (status == 'DISETUJUHI') {
+              textColor = const Color(0xFF006C49);
+              bgColor = const Color(0xFFE6F4EA);
+            } else if (status == 'DITOLAK') {
+              textColor = const Color(0xFFEE0004);
+              bgColor = const Color(0xFFFCE8E6);
+            }
+
             return {
-              'title': item['title'] ?? 'Izin',
-              'date': item['date'] ?? '-',
-              'status': item['status'] ?? 'PENDING',
-              'textColor': Color(item['textColor'] ?? 0xFFD97706),
-              'bgColor': Color(item['bgColor'] ?? 0xFFFEF3C7),
-              'icon': _getIconFromTitle(item['title'] ?? ''),
-              'iconBgColor': Color(item['iconBgColor'] ?? 0xFF1D4ED8),
+              'title': 'Pengajuan ' + (item['jenis_pengajuan'] ?? 'Izin'),
+              'date': '${item['dari_tanggal']} - ${item['sampai_tanggal']}',
+              'status': status,
+              'textColor': textColor,
+              'bgColor': bgColor,
+              'icon': _getIconFromTitle(item['jenis_pengajuan'] ?? ''),
+              'iconBgColor': const Color(0xFF1D4ED8),
               'alasan': item['alasan'] ?? '',
-              'catatanAtasan': item['catatanAtasan'],
+              'catatanAtasan': item['catatan_atasan'],
             };
           }).toList();
         });
-      } catch (e) {
-        _setInitialDefaultData();
       }
-    } else {
+    } catch (e) {
       _setInitialDefaultData();
     }
   }
@@ -120,9 +141,9 @@ class _PengajuanPageState extends State<PengajuanPage> {
         'title': item['title'],
         'date': item['date'],
         'status': item['status'],
-        'textColor': (item['textColor'] as Color).value,
-        'bgColor': (item['bgColor'] as Color).value,
-        'iconBgColor': (item['iconBgColor'] as Color).value,
+        'textColor': (item['textColor'] as Color).toARGB32(),
+        'bgColor': (item['bgColor'] as Color).toARGB32(),
+        'iconBgColor': (item['iconBgColor'] as Color).toARGB32(),
         'alasan': item['alasan'],
         'catatanAtasan': item['catatanAtasan'],
       };
@@ -259,7 +280,7 @@ class _PengajuanPageState extends State<PengajuanPage> {
     });
 
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token') ?? '';
+    final token = prefs.getString('token') ?? '';
 
     try {
       var uri = Uri.parse(_getApiUrl());
@@ -629,12 +650,16 @@ class _PengajuanPageState extends State<PengajuanPage> {
             children: [
               Icon(icon, size: 20, color: isSelected ? Colors.white : Colors.black87),
               const SizedBox(height: 4),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? Colors.white : Colors.black87,
+              // GUNAKAN FittedBox AGAR TEKS OTOMATIS MENYESUAIKAN UKURAN LAYAR
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
             ],
