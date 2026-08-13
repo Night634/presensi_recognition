@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
+import { useNotifications } from '../composables/useNotifications'
+import * as XLSX from 'xlsx' 
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, MapPin, LogOut, Bell, Search, 
-  ArrowUpDown, ChevronLeft, ChevronRight, Menu, X, User
+  ArrowUpDown, ChevronLeft, ChevronRight, Menu, X, User, Download // <-- FITUR FIXED: Tambahkan Download di sini
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -17,6 +20,76 @@ const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(4)
 const activeMenu = ref('Cuti')
+const isLoading = ref(false)
+const selectedTimeFilter = ref('all')
+
+const jakartaDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Jakarta',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+})
+const jakartaWeekdayFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Jakarta',
+  weekday: 'short'
+})
+
+const parseJakartaDate = (rawValue) => {
+  if (!rawValue) return null
+  if (rawValue instanceof Date) return rawValue
+
+  let value = String(rawValue).trim()
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    value = `${value}T00:00:00+07:00`
+  } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    value = value.replace(' ', 'T') + '+07:00'
+  } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
+    value = `${value}+07:00`
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const getJakartaDayInfo = (rawValue) => {
+  const date = parseJakartaDate(rawValue)
+  if (!date) return null
+  return {
+    dateString: jakartaDateFormatter.format(date),
+    weekday: jakartaWeekdayFormatter.format(date)
+  }
+}
+
+const getUtcDayIndex = (dateString) => Math.floor(new Date(`${dateString}T00:00:00Z`).getTime() / 86400000)
+
+const isWithinSelectedTimeFilter = (rawValue, filter) => {
+  if (filter === 'all') return true
+  const valueInfo = getJakartaDayInfo(rawValue)
+  if (!valueInfo) return false
+
+  const todayInfo = getJakartaDayInfo(new Date())
+  if (!todayInfo) return false
+
+  if (filter === 'today') {
+    return valueInfo.dateString === todayInfo.dateString
+  }
+
+  if (filter === 'month') {
+    return valueInfo.dateString.slice(0, 7) === todayInfo.dateString.slice(0, 7)
+  }
+
+  if (filter === 'week') {
+    const targetIndex = getUtcDayIndex(valueInfo.dateString)
+    const currentIndex = getUtcDayIndex(todayInfo.dateString)
+    const currentWeekday = new Date(`${todayInfo.dateString}T00:00:00Z`).getUTCDay()
+    const mondayIndex = currentIndex - ((currentWeekday + 6) % 7)
+    const sundayIndex = mondayIndex + 6
+    return targetIndex >= mondayIndex && targetIndex <= sundayIndex
+  }
+
+  return true
+}
 
 const navItems = [
   { name: 'Dashboard', icon: LayoutGrid, route: 'Dashboard' },
@@ -33,71 +106,158 @@ const navigateTo = (item) => {
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('username')
+  sessionStorage.clear()
   router.push({ name: 'Login' })
 }
 
+// Data Cuti Real dari API Laravel
+const cutiList = ref([])
+
 // Selected Cuti Detail untuk Inspect Modal
 const selectedCuti = ref({
+  id: null,
   nip: '',
   nama: '',
   status: '',
   startDate: '',
   endDate: '',
   alasan: '',
-  lampiran: 'surat_keterangan.pdf'
+  lampiran: null,
+  catatanAtasan: ''
 })
 
-// Data Cuti Dummy
-const cutiList = ref([
-  { id: 1, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_1.pdf' },
-  { id: 2, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit', lampiran: 'surat_sakit_2.pdf' },
-  { id: 3, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Sakit', lampiran: 'surat_sakit_3.pdf' },
-  { id: 4, nama: 'Muh Fahrul Fahrezi', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_4.pdf' },
-  { id: 5, nama: 'Ramzy Atchallah Putra', startDate: '16/07/2025', endDate: '19/07/2025', status: 'Cuti', lampiran: 'surat_cuti_5.pdf' },
-])
+const { notifications, fetchNotifications, removeNotification, clearAllNotif } = useNotifications()
 
-// Notification Dummy Data
-const notifications = ref([
-  { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
-  { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
-  { id: 3, name: 'Atchallah', action: 'Mengajukan Cuti', time: '15 min', unread: false },
-  { id: 4, name: 'Putra', action: 'Mengajukan Cuti', time: '16 min', unread: false },
-  { id: 5, name: 'thejoeswanson', action: 'High fived your workout', time: '18 min', unread: true },
-])
+const formatStatusLabel = (status) => {
+  return status === 'DISETUJUHI' ? 'DISETUJUI' : status
+}
 
-// Actions
+// Fetch Data Cuti dari Backend Laravel
+const fetchCutiList = async () => {
+  isLoading.value = true
+  try {
+    const token = sessionStorage.getItem('admin_token') 
+
+    const response = await axios.get('http://127.0.0.1:8000/api/admin/pengajuan', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json'
+      }
+    })
+
+    if (response.data.status === 'success') {
+      cutiList.value = response.data.data.map(item => ({
+        id: item.id,
+        nama: item.user ? item.user.name : 'Unknown User',
+        nip: item.user ? item.user.nip : '-',
+        startDate: item.dari_tanggal,
+        endDate: item.sampai_tanggal,
+        sourceDate: item.dari_tanggal || item.sampai_tanggal || item.tanggal,
+        status: item.status,
+        jenis: item.jenis_pengajuan,
+        alasan: item.alasan,
+        // FIX: Ambil URL Lampiran dengan fallback yang aman
+        lampiran: item.lampiran 
+          ? (item.lampiran.startsWith('http') ? item.lampiran : `http://127.0.0.1:8000/storage/${item.lampiran}`) 
+          : null,
+        catatanAtasan: item.catatan_atasan || ''
+      }))
+    }
+  } catch (error) {
+    console.error('Gagal mengambil data pengajuan:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const toggleNotifications = async () => {
+  isNotifOpen.value = !isNotifOpen.value
+  if (isNotifOpen.value) {
+    await fetchNotifications()
+  }
+}
+
+const exportCutiToExcel = () => {
+  if (filteredCuti.value.length === 0) {
+    alert('Tidak ada data pengajuan cuti untuk diexport.')
+    return
+  }
+
+  const exportData = filteredCuti.value.map((item, index) => ({
+    No: index + 1,
+    Nama: item.nama,
+    NIP: item.nip,
+    'Mulai Cuti': item.startDate,
+    'Selesai Cuti': item.endDate,
+    Jenis: item.jenis,
+    Status: item.status,
+    Alasan: item.alasan
+  }))
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Pengajuan Cuti')
+  XLSX.writeFile(workbook, `Rekap_Cuti_${new Date().toISOString().slice(0,10)}.xlsx`)
+}
+
+// FIX: Aksi Modal Inspect - Passing Lampiran dengan Benar
 const handleInspect = (item) => {
   selectedCuti.value = {
-    nip: '',
-    nama: '',
-    status: '',
-    startDate: '',
-    endDate: '',
-    alasan: '',
-    lampiran: item.lampiran || 'surat_keterangan.pdf'
+    id: item.id,
+    nip: item.nip,
+    nama: item.nama,
+    status: item.status,
+    startDate: item.startDate,
+    endDate: item.endDate,
+    alasan: item.alasan,
+    lampiran: item.lampiran
   }
   isInspectOpen.value = true
 }
 
-const handleReject = (id) => {
-  cutiList.value = cutiList.value.filter(c => c.id !== id)
+const handleReject = async (id) => {
+  if (!confirm('Apakah Anda yakin ingin menolak pengajuan ini?')) return
+  await updateCutiStatus(id, 'DITOLAK')
 }
 
-const handleApprove = () => {
-  alert('Pengajuan Cuti Disetujui!')
-  isInspectOpen.value = false
+const handleApprove = async () => {
+  if (selectedCuti.value.id) {
+    await updateCutiStatus(selectedCuti.value.id, 'DISETUJUI')
+    isInspectOpen.value = false
+  }
 }
 
-const clearAllNotif = () => {
-  notifications.value = []
+const updateCutiStatus = async (id, newStatus) => {
+  try {
+    const token = sessionStorage.getItem('admin_token')
+
+    const response = await axios.put(
+      `http://127.0.0.1:8000/api/admin/pengajuan/${id}/status`,
+      { status: newStatus },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json'
+        }
+      }
+    )
+
+    if (response.data.status === 'success') {
+      await fetchCutiList()
+    }
+  } catch (error) {
+    console.error('Gagal mengubah status:', error)
+    alert('Gagal mengubah status pengajuan.')
+  }
 }
 
 const filteredCuti = computed(() => {
-  return cutiList.value.filter(item => 
-    item.nama.toLowerCase().includes(searchQuery.value.toLowerCase())
-  )
+  return cutiList.value
+    .filter(item => isWithinSelectedTimeFilter(item.sourceDate, selectedTimeFilter.value))
+    .filter(item => 
+      item.nama.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      item.nip.toLowerCase().includes(searchQuery.value.toLowerCase())
+    )
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredCuti.value.length / pageSize.value)))
@@ -108,56 +268,35 @@ const paginatedCuti = computed(() => {
 const displayFrom = computed(() => filteredCuti.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1)
 const displayTo = computed(() => Math.min(filteredCuti.value.length, currentPage.value * pageSize.value))
 
-watch(searchQuery, () => {
+watch([searchQuery, selectedTimeFilter], () => {
   currentPage.value = 1
+})
+
+onMounted(() => {
+  fetchNotifications()
+  fetchCutiList()
 })
 </script>
 
 <template>
   <div class="flex h-screen bg-[#F0F4F8] font-sans text-gray-900 overflow-hidden relative">
     
-    <!-- BACKDROP MOBILE -->
-    <div 
-      v-if="isSidebarOpen" 
-      @click="isSidebarOpen = false"
-      class="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden"
-    ></div>
+    <div v-if="isSidebarOpen" @click="isSidebarOpen = false" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden"></div>
 
     <!-- SIDEBAR -->
-    <aside 
-      :class="[
-        'fixed lg:static inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col justify-between z-40 transition-transform duration-300 ease-in-out shrink-0',
-        isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'
-      ]"
-    >
+    <aside :class="['fixed lg:static inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col justify-between z-40 transition-transform duration-300 ease-in-out shrink-0', isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0']">
       <div>
         <div class="h-16 flex items-center justify-between px-6 border-b border-gray-100">
           <div class="flex items-center space-x-3">
             <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">P</div>
             <span class="font-bold text-sm text-gray-800">Admin Portal</span>
           </div>
-          <button @click="isSidebarOpen = false" class="lg:hidden text-gray-500">
-            <X class="w-6 h-6" />
-          </button>
+          <button @click="isSidebarOpen = false" class="lg:hidden text-gray-500"><X class="w-6 h-6" /></button>
         </div>
         <nav class="mt-4 px-4 space-y-1.5">
-          <button
-            v-for="item in navItems"
-            :key="item.name"
-            @click="navigateTo(item)"
-            :class="[
-              'w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-150',
-              activeMenu === item.name 
-                ? 'text-blue-600 bg-blue-50/60 font-semibold' 
-                : 'text-gray-600 hover:bg-gray-50'
-            ]"
-          >
+          <button v-for="item in navItems" :key="item.name" @click="navigateTo(item)" :class="['w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-150', activeMenu === item.name ? 'text-blue-600 bg-blue-50/60 font-semibold' : 'text-gray-600 hover:bg-gray-50']">
             <div class="flex items-center space-x-3.5">
-              <component 
-                :is="item.icon" 
-                :class="['w-5 h-5', activeMenu === item.name ? 'text-blue-600' : 'text-gray-500']" 
-                stroke-width="2"
-              />
+              <component :is="item.icon" :class="['w-5 h-5', activeMenu === item.name ? 'text-blue-600' : 'text-gray-500']" stroke-width="2" />
               <span class="text-sm">{{ item.name }}</span>
             </div>
             <div v-if="activeMenu === item.name" class="w-1.5 h-6 bg-blue-600 rounded-full"></div>
@@ -177,9 +316,7 @@ watch(searchQuery, () => {
       <!-- HEADER -->
       <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 z-30 shrink-0">
         <div class="flex items-center space-x-3">
-          <button @click="isSidebarOpen = true" class="p-2 -ml-2 text-gray-600 lg:hidden">
-            <Menu class="w-6 h-6" />
-          </button>
+          <button @click="isSidebarOpen = true" class="p-2 -ml-2 text-gray-600 lg:hidden"><Menu class="w-6 h-6" /></button>
           <div class="flex items-center space-x-3">
             <div class="w-8 h-8 bg-white flex items-center justify-center">
               <img :src="logoSetneg" alt="Logo Setneg" class="w-full h-full object-cover" />
@@ -187,9 +324,7 @@ watch(searchQuery, () => {
             <span class="font-bold text-xs uppercase tracking-wide text-gray-800">Kementerian Sekretariat Negara Republik Indonesia</span>
           </div>
         </div>
-        <button @click="isNotifOpen = !isNotifOpen" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative">
-          <Bell class="w-6 h-6" />
-        </button>
+        <button @click="toggleNotifications" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative"><Bell class="w-6 h-6" /></button>
       </header>
 
       <!-- BODY -->
@@ -199,13 +334,24 @@ watch(searchQuery, () => {
           <h1 class="text-2xl font-bold text-gray-950">Welcome to Pengajuan Cuti !</h1>
         </div>
 
-        <!-- SEARCH & EXPORT -->
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          <div class="relative w-full sm:w-80">
-            <input v-model="searchQuery" type="text" placeholder="Search..." class="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none" />
-            <Search class="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+          <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div class="relative w-full sm:w-72">
+              <input v-model="searchQuery" type="text" placeholder="Cari nama atau NIP..." class="w-full bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none" />
+              <Search class="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+            </div>
+            <select v-model="selectedTimeFilter" class="w-full sm:w-auto bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-700 focus:outline-none">
+              <option value="all">Semua Waktu</option>
+              <option value="today">Hari Ini</option>
+              <option value="week">Minggu Ini</option>
+              <option value="month">Bulan Ini</option>
+            </select>
           </div>
-          <button class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition">Export</button>
+
+          <button @click="exportCutiToExcel" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+            <Download class="w-4 h-4" />
+            <span>Export Excel</span>
+          </button>
         </div>
 
         <!-- TABLE DATA CUTI -->
@@ -228,16 +374,39 @@ watch(searchQuery, () => {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100 text-sm font-semibold text-gray-900">
-                <tr v-for="(item, index) in paginatedCuti" :key="item.id" class="hover:bg-gray-50/80 transition">
+                <tr v-if="isLoading">
+                  <td colspan="6" class="text-center py-6 text-gray-400 text-xs">Memuat data pengajuan...</td>
+                </tr>
+                <tr v-else-if="paginatedCuti.length === 0">
+                  <td colspan="6" class="text-center py-6 text-gray-400 text-xs">Tidak ada data pengajuan.</td>
+                </tr>
+                <tr v-else v-for="(item, index) in paginatedCuti" :key="item.id" class="hover:bg-gray-50/80 transition">
                   <td class="py-4 px-6 text-center">{{ displayFrom + index }}</td>
                   <td class="py-4 px-6">{{ item.nama }}</td>
                   <td class="py-4 px-6">{{ item.startDate }}</td>
                   <td class="py-4 px-6">{{ item.endDate }}</td>
-                  <td class="py-4 px-6">{{ item.status }}</td>
+                  <td class="py-4 px-6">
+                    <span :class="[
+                      'px-2.5 py-1 rounded-full text-xs font-bold',
+                      item.status === 'DISETUJUHI' || item.status === 'DISETUJUI' ? 'bg-green-100 text-green-700' :
+                      item.status === 'DITOLAK' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    ]">
+                      {{ formatStatusLabel(item.status) }}
+                    </span>
+                  </td>
                   <td class="py-4 px-6">
                     <div class="flex items-center justify-center space-x-2">
                       <button @click="handleInspect(item)" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition">Inspect</button>
-                      <button @click="handleReject(item.id)" class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition">Reject</button>
+                      
+                      <!-- FIX: Sembunyikan tombol Reject jika sudah Approve/Reject -->
+                      <button 
+                        v-if="item.status === 'PENDING' || item.status === 'MENUNGGU'"
+                        @click="handleReject(item.id)" 
+                        class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition"
+                      >
+                        Reject
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -245,7 +414,7 @@ watch(searchQuery, () => {
             </table>
           </div>
         </div>
-        <!-- PAGINASI -->
+
         <div class="flex items-center justify-end space-x-4 text-xs font-medium text-gray-600 pt-2">
           <div class="flex items-center space-x-2">
             <span>Halaman:</span>
@@ -260,35 +429,6 @@ watch(searchQuery, () => {
           </div>
         </div>
       </main>
-    </div>
-
-    <!-- DRAWER NOTIFIKASI -->
-    <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-2xl z-50 p-4 transition-all">
-      <div class="flex items-center justify-between pb-3 border-b border-gray-100">
-        <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
-        <div class="flex items-center space-x-3">
-          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
-          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
-        </div>
-      </div>
-      <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1">
-          <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
-              <User class="w-4 h-4" />
-            </div>
-            <div>
-              <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
-              <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
-              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
-            </div>
-          </div>
-          <div class="flex items-center space-x-1">
-            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
-            <ChevronRight class="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- MODAL INSPECT CUTI -->
@@ -309,13 +449,13 @@ watch(searchQuery, () => {
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Status</label>
-            <input :value="selectedCuti.status" type="text" readonly class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none" />
+            <input :value="formatStatusLabel(selectedCuti.status)" type="text" readonly class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 focus:outline-none" />
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Durasi</label>
             <div class="grid grid-cols-2 gap-3">
-              <input :value="selectedCuti.startDate" type="text" readonly placeholder="mm/dd/yyyy" class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 text-center focus:outline-none" />
-              <input :value="selectedCuti.endDate" type="text" readonly placeholder="mm/dd/yyyy" class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 text-center focus:outline-none" />
+              <input :value="selectedCuti.startDate" type="text" readonly placeholder="yyyy-mm-dd" class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 text-center focus:outline-none" />
+              <input :value="selectedCuti.endDate" type="text" readonly placeholder="yyyy-mm-dd" class="w-full bg-gray-200/80 border-none rounded-lg px-3.5 py-2 text-xs text-gray-800 text-center focus:outline-none" />
             </div>
           </div>
           <div>
@@ -324,16 +464,87 @@ watch(searchQuery, () => {
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Lampiran</label>
-            <div class="bg-gray-500 rounded-2xl h-44 flex items-center justify-center relative overflow-hidden">
-              <div class="text-center text-white text-xs font-semibold px-4 py-2">
-                {{ selectedCuti.lampiran || 'No file attached' }}
-              </div>
+            <div class="bg-gray-100 border border-gray-200 rounded-2xl h-36 flex flex-col items-center justify-center relative overflow-hidden p-4">
+              <!-- FIX: Tampilan Gambar atau Link PDF dari Lampiran -->
+              <template v-if="selectedCuti.lampiran">
+                <img 
+                  v-if="selectedCuti.lampiran.match(/\.(jpeg|jpg|gif|png|webp)$/i)" 
+                  :src="selectedCuti.lampiran" 
+                  alt="Lampiran Cuti" 
+                  class="h-full w-full object-contain rounded-lg"
+                />
+                <a 
+                  v-else 
+                  :href="selectedCuti.lampiran" 
+                  target="_blank" 
+                  class="text-blue-600 font-semibold text-xs hover:underline flex items-center space-x-1"
+                >
+                  <span>Lihat Dokumen Pendukung</span>
+                </a>
+              </template>
+              <template v-else>
+                <span class="text-xs text-gray-400 font-medium">Tidak ada lampiran diunggah</span>
+              </template>
             </div>
           </div>
         </div>
+
         <div class="flex items-center space-x-3 pt-4">
-          <button type="button" @click="handleApprove" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150">Approve</button>
-          <button type="button" @click="isInspectOpen = false" class="flex-1 bg-white hover:bg-gray-50 text-blue-600 border border-blue-600 text-xs font-semibold py-3 rounded-lg transition duration-150">Batal</button>
+          <!-- FIX: Sembunyikan Tombol Approve jika Sudah Disetujui/Ditolak -->
+          <button 
+            v-if="selectedCuti.status === 'PENDING' || selectedCuti.status === 'MENUNGGU'"
+            type="button" 
+            @click="handleApprove" 
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-3 rounded-lg shadow-md transition duration-150"
+          >
+            Approve
+          </button>
+          
+          <button 
+            type="button" 
+            @click="isInspectOpen = false" 
+            :class="['text-xs font-semibold py-3 rounded-lg transition duration-150', selectedCuti.status === 'PENDING' || selectedCuti.status === 'MENUNGGU' ? 'flex-1 bg-white text-blue-600 border border-blue-600 hover:bg-gray-50' : 'w-full bg-blue-600 text-white hover:bg-blue-700']"
+          >
+            {{ (selectedCuti.status === 'PENDING' || selectedCuti.status === 'MENUNGGU') ? 'Batal' : 'Tutup' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DRAWER NOTIFIKASI -->
+    <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+        <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
+        <div class="flex items-center space-x-3">
+          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
+          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+        </div>
+      </div>
+      <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1 group">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
+              <User class="w-4 h-4" />
+            </div>
+            <div>
+              <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
+              <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
+              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
+            <button
+              @click.stop="removeNotification(notif.id)"
+              class="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-md transition"
+              title="Hapus notifikasi"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div v-if="notifications.length === 0" class="py-6 text-center text-xs text-gray-400">
+          Tidak ada notifikasi baru
         </div>
       </div>
     </div>

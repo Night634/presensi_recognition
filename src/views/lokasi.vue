@@ -72,7 +72,7 @@
             <span class="font-bold text-xs uppercase tracking-wide text-gray-800">Kementerian Sekretariat Negara Republik Indonesia</span>
           </div>
         </div>
-        <button @click="isNotifOpen = !isNotifOpen" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative">
+        <button @click="toggleNotifications" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative">
           <Bell class="w-6 h-6" />
         </button>
       </header>
@@ -138,7 +138,7 @@
                       </button>
                       <button 
                         @click="handleOpenModal(item)"
-                        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                        class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
                       >
                         Edit
                       </button>
@@ -180,6 +180,44 @@
           </div>
         </div>
       </main>
+    </div>
+
+    <!-- DRAWER NOTIFIKASI -->
+    <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+        <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
+        <div class="flex items-center space-x-3">
+          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
+          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+        </div>
+      </div>
+      <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1 group">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
+              <User class="w-4 h-4" />
+            </div>
+            <div>
+              <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
+              <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
+              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
+            <button
+              @click.stop="removeNotification(notif.id)"
+              class="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-md transition"
+              title="Hapus notifikasi"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div v-if="notifications.length === 0" class="py-6 text-center text-xs text-gray-400">
+          Tidak ada notifikasi baru
+        </div>
+      </div>
     </div>
 
     <!-- MODAL TAMBAH / EDIT POLYGON -->
@@ -280,11 +318,19 @@
   </div>
 </template>
 
+<style>
+.leaflet-div-icon.custom-map-pin-marker {
+  background: transparent !important;
+  border: none !important;
+}
+</style>
+
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
+import { useNotifications } from '../composables/useNotifications'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, MapPin, LogOut, Bell, Search, 
   ChevronLeft, ChevronRight, Menu, X, User
@@ -322,6 +368,14 @@ const pageSize = ref(4)
 const activeMenu = ref('Lokasi')
 
 const lokasiList = ref([])
+const { notifications, fetchNotifications, removeNotification, clearAllNotif } = useNotifications()
+
+const toggleNotifications = async () => {
+  isNotifOpen.value = !isNotifOpen.value
+  if (isNotifOpen.value) {
+    await fetchNotifications()
+  }
+}
 
 // Map Refs
 const mapContainer = ref(null)
@@ -362,7 +416,12 @@ const fetchLokasi = async () => {
   isLoading.value = true
   try {
     const response = await axios.get(API_URL, getAuthHeader())
-    lokasiList.value = response.data
+    // Normalize coordinates for each item so downstream code always gets [lat, lng] arrays
+    lokasiList.value = response.data.map(item => ({
+      ...item,
+      coordinates: normalizeCoordinates(item.coordinates)
+    }))
+    // Re-render polygons with normalized coordinates
     renderMainMapPolygons()
   } catch (error) {
     console.error('Gagal mengambil data lokasi:', error)
@@ -405,16 +464,57 @@ const handleDelete = async (id) => {
 }
 
 // ===== HELPER FUNCTIONS =====
+// Normalize coordinates coming from API or other sources into an array of [lat, lng]
+const normalizeCoordinates = (raw) => {
+  if (!raw) return []
+  try {
+    let coords = raw
+    if (typeof coords === 'string') {
+      coords = JSON.parse(coords)
+    }
+    if (!Array.isArray(coords)) return []
+
+    // GeoJSON Polygon: [[[lng, lat], ...]] -> take first ring and convert to [lat, lng]
+    if (coords.length > 0 && Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+      const firstRing = coords[0]
+      return firstRing.map(pt => {
+        const lng = parseFloat(pt[0])
+        const lat = parseFloat(pt[1])
+        return [lat, lng]
+      }).filter(p => !isNaN(p[0]) && !isNaN(p[1]))
+    }
+
+    // Already an array of [lat, lng]
+    if (coords.length > 0 && typeof coords[0][0] === 'number' && typeof coords[0][1] === 'number') {
+      return coords.map(pt => [parseFloat(pt[0]), parseFloat(pt[1])]).filter(p => !isNaN(p[0]) && !isNaN(p[1]))
+    }
+
+    // Possibly an array of objects like { lat, lng }
+    if (coords.length > 0 && typeof coords[0] === 'object' && coords[0] !== null) {
+      return coords.map(p => {
+        const lat = parseFloat(p.lat ?? p.latitude)
+        const lng = parseFloat(p.lng ?? p.lon ?? p.longitude)
+        return [lat, lng]
+      }).filter(p => !isNaN(p[0]) && !isNaN(p[1]))
+    }
+
+    return []
+  } catch (e) {
+    return []
+  }
+}
+
 const getCenterCoordinate = (coords) => {
-  if (!coords || coords.length === 0) return '-'
+  const arr = normalizeCoordinates(coords)
+  if (!arr || arr.length === 0) return '-'
   let sumLat = 0
   let sumLng = 0
-  coords.forEach(c => {
+  arr.forEach(c => {
     sumLat += parseFloat(c[0])
     sumLng += parseFloat(c[1])
   })
-  const avgLat = (sumLat / coords.length).toFixed(5)
-  const avgLng = (sumLng / coords.length).toFixed(5)
+  const avgLat = (sumLat / arr.length).toFixed(5)
+  const avgLng = (sumLng / arr.length).toFixed(5)
   return `${avgLat}, ${avgLng}`
 }
 
@@ -457,27 +557,106 @@ function initMainMap() {
   mainMap.whenReady(() => renderMainMapPolygons())
 }
 
+// Array warna estetik untuk membedakan tiap wilayah gedung
+// Palette warna area polygon
+const areaColors = [
+  { border: '#2563EB', fill: '#3B82F6' }, // Blue
+  { border: '#059669', fill: '#10B981' }, // Emerald
+  { border: '#D97706', fill: '#F59E0B' }, // Amber
+  { border: '#7C3AED', fill: '#8B5CF6' }, // Purple
+  { border: '#DC2626', fill: '#EF4444' }, // Red
+  { border: '#0891B2', fill: '#06B6D4' }, // Cyan
+]
+
 function renderMainMapPolygons() {
   if (!mainMap) return
 
-  // Clean old layers
+  // 1. Bersihkan layer lama
   mainLayers.forEach(layer => mainMap.removeLayer(layer))
   mainLayers = []
 
-  lokasiList.value.forEach(lok => {
-    if (lok.coordinates && lok.coordinates.length >= 3) {
-      const polygon = L.polygon(lok.coordinates, {
-        color: '#3B82F6',
-        fillColor: '#3B82F6',
-        fillOpacity: 0.25,
-        weight: 2
+  const boundsGroup = []
+
+  lokasiList.value.forEach((lok, index) => {
+    const coords = normalizeCoordinates(lok.coordinates)
+    if (coords && coords.length >= 3) {
+      const colorScheme = areaColors[index % areaColors.length]
+
+      // A. Gambar Polygon
+      const polygon = L.polygon(coords, {
+        color: colorScheme.border,
+        fillColor: colorScheme.fill,
+        fillOpacity: 0.35,
+        weight: 3
       })
-      .bindPopup(`<strong>${lok.nama_gedung}</strong><br/>Jumlah Titik: ${lok.coordinates.length}`)
+      .bindPopup(`
+        <div class="p-1 font-sans">
+          <strong class="text-sm text-gray-900 block font-bold mb-0.5">${lok.nama_gedung}</strong>
+          <span class="text-xs text-gray-500">${lok.coordinates.length} Titik Sudut</span>
+        </div>
+      `)
       .addTo(mainMap)
 
       mainLayers.push(polygon)
+
+      // B. Titik Tengah Polygon
+      const center = polygon.getBounds().getCenter()
+      boundsGroup.push(polygon.getBounds())
+
+      // C. Marker Lucide MapPin + Teks Nama Gedung di Bawah Icon
+      const customIcon = L.divIcon({
+        className: 'custom-map-pin-marker',
+        html: `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: none;">
+            <!-- 1. ICON MAP PIN (Mirip seperti di Sidebar) -->
+            <div style="
+              background: #FFFFFF;
+              padding: 6px;
+              border-radius: 9999px;
+              box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+              border: 2px solid ${colorScheme.border};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            ">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${colorScheme.border}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+            </div>
+
+            <!-- 2. NAMA GEDUNG DI BAWAH ICON -->
+            <div style="
+              margin-top: 4px;
+              background: #0F172A; 
+              color: #FFFFFF; 
+              font-size: 11px; 
+              font-weight: 700; 
+              padding: 3px 8px; 
+              border-radius: 6px; 
+              white-space: nowrap; 
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              border: 1px solid rgba(255,255,255,0.2);
+              font-family: ui-sans-serif, system-ui, sans-serif;
+            ">
+              ${lok.nama_gedung}
+            </div>
+          </div>
+        `,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+      })
+
+      const labelMarker = L.marker(center, { icon: customIcon, interactive: false }).addTo(mainMap)
+      mainLayers.push(labelMarker)
     }
   })
+
+  // Fit View Peta
+  if (boundsGroup.length > 0) {
+    const featureGroup = L.featureGroup(mainLayers)
+    mainMap.fitBounds(featureGroup.getBounds(), { padding: [40, 40] })
+  }
 }
 
 // 2. Peta Modal (Drawing Mode)
@@ -600,6 +779,7 @@ const handleFocusMap = (item) => {
 // ===== LIFECYCLE & WATCHERS =====
 onMounted(() => {
   fetchLokasi()
+  fetchNotifications()
   setTimeout(() => initMainMap(), 300)
 })
 

@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
+import { useNotifications } from '../composables/useNotifications'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, MapPin,
   LogOut, Bell, Search, ArrowUpDown, Camera, 
@@ -10,12 +11,25 @@ import {
 } from 'lucide-vue-next'
 
 const router = useRouter()
-const API_URL = 'http://localhost:8000/api/users' // Sesuaikan URL backend Laravel kamu
+const API_URL = 'http://localhost:8000/api/users'
 
 // Config Auth Token Axios
 const getAuthHeader = () => ({
   headers: { Authorization: `Bearer ${sessionStorage.getItem('admin_token')}` }
 })
+
+// HELPER: Konversi Data URL (Base64) ke File Blob untuk FormData
+const dataURLtoFile = (dataurl, filename) => {
+  let arr = dataurl.split(','),
+      mime = arr[0].match(/:(.*?);/)[1],
+      bstr = atob(arr[1]), 
+      n = bstr.length, 
+      u8arr = new Uint8Array(n)
+  while(n--){
+      u8arr[n] = bstr.charCodeAt(n)
+  }
+  return new File([u8arr], filename, { type: mime })
+}
 
 // State Interface/UI
 const isSidebarOpen = ref(false)
@@ -54,22 +68,32 @@ const activeMenu = ref('Pegawai')
 
 // Master Data Pegawai (From API)
 const pegawaiList = ref([])
+const { notifications, fetchNotifications, removeNotification, clearAllNotif } = useNotifications()
 
-const notifications = ref([
-  { id: 1, name: 'Muh Fahrul', action: 'Mengajukan Cuti', time: '0 min', unread: true },
-  { id: 2, name: 'Ramzy', action: 'Terlambat Presensi', time: '6 min', unread: true },
-])
+const toggleNotifications = async () => {
+  isNotifOpen.value = !isNotifOpen.value
+  if (isNotifOpen.value) {
+    await fetchNotifications()
+  }
+}
 
 // ===== API CRUD OPERATIONS =====
 
-// 1. Fetch List Pegawai
+// 1. Fetch List Pegawai (Wajib didefinisikan sebelum onMounted)
 const fetchPegawai = async () => {
   isLoading.value = true
   try {
     const res = await axios.get(API_URL, getAuthHeader())
-    pegawaiList.value = res.data
+    if (Array.isArray(res.data)) {
+      pegawaiList.value = res.data
+    } else if (res.data && Array.isArray(res.data.data)) {
+      pegawaiList.value = res.data.data
+    } else {
+      pegawaiList.value = []
+    }
   } catch (error) {
     console.error('Gagal mengambil data pegawai:', error)
+    pegawaiList.value = []
   } finally {
     isLoading.value = false
   }
@@ -84,12 +108,16 @@ const handleSubmit = async () => {
       name: formPegawai.value.name,
       email: formPegawai.value.email,
       jabatan: formPegawai.value.jabatan,
-      role: 'pegawai', // <-- KUNCI: Set otomatis role jadi pegawai
-      status_aktif: formPegawai.value.status_aktif,
-      foto: fotoPreview.value || formPegawai.value.foto
+      role: 'pegawai',
+      status_aktif: formPegawai.value.status_aktif ? 1 : 0,
+      // Pastikan foto selalu berupa String (Base64 baru ATAU URL lama ATAU string kosong)
+      foto: fotoPreview.value || formPegawai.value.foto || ''
     }
 
-    if (formPegawai.value.password) {
+    // Tangani Password
+    if (!isEditMode.value) {
+      payload.password = formPegawai.value.password || '12345678'
+    } else if (formPegawai.value.password) {
       payload.password = formPegawai.value.password
     }
 
@@ -101,9 +129,21 @@ const handleSubmit = async () => {
 
     await fetchPegawai()
     handleCloseModal()
+    alert(isEditMode.value ? 'Berhasil mengupdate pegawai!' : 'Berhasil menambah pegawai!')
   } catch (error) {
     console.error('Gagal menyimpan data pegawai:', error)
-    alert(error.response?.data?.message || 'Gagal menyimpan data pegawai!')
+    
+    const serverMessage = error.response?.data?.message
+    const validationErrors = error.response?.data?.errors
+
+    if (validationErrors) {
+      const firstKey = Object.keys(validationErrors)[0]
+      alert(`Validasi Gagal (${firstKey}): ${validationErrors[firstKey][0]}`)
+    } else if (serverMessage) {
+      alert(`Error: ${serverMessage}`)
+    } else {
+      alert('Gagal menyimpan data pegawai!')
+    }
   } finally {
     isSubmitting.value = false
   }
@@ -216,7 +256,7 @@ const handleOpenModal = (item = null) => {
       email: item.email || '',
       password: '',
       jabatan: item.jabatan || '',
-      status_aktif: item.status_aktif !== undefined ? item.status_aktif : true,
+      status_aktif: item.status_aktif !== undefined ? Boolean(item.status_aktif) : true,
       foto: item.foto || null
     }
     fotoPreview.value = item.foto || null
@@ -235,14 +275,12 @@ const handleCloseModal = () => {
 // ===== COMPUTED & PAGINATION =====
 
 const filteredPegawai = computed(() => {
+  if (!Array.isArray(pegawaiList.value)) return []
   return pegawaiList.value.filter(p => {
-    // 1. Pastikan rolenya pegawai (atau bukan admin)
     const isPegawai = p.role === 'pegawai' || p.role !== 'admin'
-    
-    // 2. Filter berdasarkan search query
     const matchSearch = 
       (p.name && p.name.toLowerCase().includes(searchQuery.value.toLowerCase())) ||
-      (p.nip && p.nip.includes(searchQuery.value)) ||
+      (p.nip && String(p.nip).includes(searchQuery.value)) ||
       (p.jabatan && p.jabatan.toLowerCase().includes(searchQuery.value.toLowerCase()))
 
     return isPegawai && matchSearch
@@ -282,8 +320,10 @@ const handleLogout = () => {
   router.replace({ name: 'Login' })
 }
 
+// DIPANGGIL DI PALING BAWAH KETIKA FUNGSI SUDAH DIDEKLARASIKAN SEMUA
 onMounted(() => {
   fetchPegawai()
+  fetchNotifications()
 })
 
 onUnmounted(() => {
@@ -368,7 +408,7 @@ onUnmounted(() => {
             <span class="font-bold text-xs uppercase tracking-wide text-gray-800">Kementerian Sekretariat Negara Republik Indonesia</span>
           </div>
         </div>
-        <button @click="isNotifOpen = !isNotifOpen" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative">
+        <button @click="toggleNotifications" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative">
           <Bell class="w-6 h-6" />
         </button>
       </header>
@@ -452,7 +492,7 @@ onUnmounted(() => {
                     <div class="flex items-center justify-center space-x-2">
                       <button 
                         @click="handleOpenModal(pegawai)"
-                        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                        class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
                       >
                         Edit
                       </button>
@@ -656,10 +696,13 @@ onUnmounted(() => {
     <div v-if="isNotifOpen" class="absolute top-16 right-0 w-80 bg-white border-l border-b border-gray-200 shadow-xl z-50 p-4 transition-all">
       <div class="flex items-center justify-between pb-3 border-b border-gray-100">
         <h3 class="font-bold text-sm text-gray-800">Notifications</h3>
-        <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+        <div class="flex items-center space-x-3">
+          <button @click="clearAllNotif" class="text-xs text-gray-500 hover:text-gray-800 font-medium">Clear All</button>
+          <button @click="isNotifOpen = false" class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+        </div>
       </div>
       <div class="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1">
+        <div v-for="notif in notifications" :key="notif.id" class="py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition px-1 group">
           <div class="flex items-center space-x-3">
             <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white shrink-0">
               <UserIcon class="w-4 h-4" />
@@ -667,8 +710,22 @@ onUnmounted(() => {
             <div>
               <p class="text-xs font-bold text-gray-900 leading-tight">{{ notif.name }}</p>
               <p class="text-[10px] text-gray-500">{{ notif.action }}</p>
+              <span class="text-[9px] text-gray-400">{{ notif.time }}</span>
             </div>
           </div>
+          <div class="flex items-center space-x-2">
+            <div v-if="notif.unread" class="w-2 h-2 rounded-full bg-red-500"></div>
+            <button
+              @click.stop="removeNotification(notif.id)"
+              class="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-md transition"
+              title="Hapus notifikasi"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div v-if="notifications.length === 0" class="py-6 text-center text-xs text-gray-400">
+          Tidak ada notifikasi baru
         </div>
       </div>
     </div>
