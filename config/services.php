@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'colab' => [
+    'url' => env('COLAB_AI_URL'),
+    ],
+
 ];

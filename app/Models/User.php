@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -27,6 +26,8 @@ class User extends Authenticatable
         'role',
         'jabatan',
         'status_aktif',
+        'foto',
+        'face_embedding', // <-- Tambahkan ini
     ];
 
     /**
@@ -48,7 +49,14 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
+            'status_aktif'      => 'boolean',
+            'face_embedding'    => 'array', // <-- Cast otomatis ke Array/JSON
         ];
+    }
+
+    public function kehadirans()
+    {
+        return $this->hasMany(Kehadiran::class, 'user_id', 'id');
     }
 }

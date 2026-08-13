@@ -55,6 +55,59 @@ class AuthController extends Controller
         ]);
     }
 
+    // Tambahkan di bawah method login yang sudah ada
+public function adminLogin(Request $request)
+{
+    $request->validate([
+        'nip' => 'required',
+        'password' => 'required',
+    ]);
+
+    // 1. Cek NIP
+    $user = User::where('nip', $request->nip)->first();
+    if (!$user) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'NIP ' . $request->nip . ' tidak ditemukan di database.',
+        ], 401);
+    }
+
+    // 2. Cek Password Hash
+    if (!Hash::check($request->password, $user->password)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Password salah/belum di-hash dengan benar.',
+        ], 401);
+    }
+
+    // 3. Cek Role Admin
+    if ($user->role !== 'admin') {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Akses ditolak! Role user ini adalah: ' . $user->role . ' (harus admin).',
+        ], 403);
+    }
+
+    // 4. Cek Status Aktif
+    if (!$user->status_aktif) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Akun status_aktif bernilai false/0.',
+        ], 403);
+    }
+
+    $token = $user->createToken('admin_token')->plainTextToken;
+
+    return response()->json([
+        'status' => 'success',
+        'message' => 'Login Admin berhasil',
+        'data' => [
+            'user' => $user,
+            'token' => $token,
+        ]
+    ]);
+}
+
     // API LOGOUT
     public function logout(Request $request)
     {

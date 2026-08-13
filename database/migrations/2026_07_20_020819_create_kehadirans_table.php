@@ -14,11 +14,17 @@ return new class extends Migration
         Schema::create('kehadirans', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
-            $table->dateTime('waktu_masuk')->nullable();
+            $table->date('tanggal');
+            $table->dateTime('waktu_masuk');
             $table->dateTime('waktu_pulang')->nullable();
-            $table->decimal('latitude_masuk', 10, 8)->nullable();
-            $table->decimal('longitude_masuk', 11, 8)->nullable();
-            $table->enum('status_kehadiran', ['hadir', 'terlambat', 'izin', 'alfa'])->default('hadir');
+            $table->string('foto_masuk')->nullable();
+            $table->string('foto_pulang')->nullable();
+            $table->string('latitude_masuk')->nullable();
+            $table->string('longitude_masuk')->nullable();
+            $table->string('latitude_pulang')->nullable();
+            $table->string('longitude_pulang')->nullable();
+            $table->string('status_kehadiran')->default('Hadir');
+            $table->string('status_masuk')->nullable(); // Tepat Waktu / Terlambat
             $table->timestamps();
         });
     }
