@@ -64,4 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/fcm-token', [ReminderNotificationController::class, 'updateFcmToken']);
     Route::delete('/notifications/{id}', [ReminderNotificationController::class, 'destroy']);
     Route::delete('/notifications-clear-all', [ReminderNotificationController::class, 'clearAll']);
+
+    Route::put('/users/{id}/profile-mobile', [UserController::class, 'updateProfileMobile']);
+    Route::put('/users/{id}/password-mobile',[UserController::class, 'updatePasswordMobile']);
 });

@@ -197,4 +197,42 @@ class UserController extends Controller
 
         return response()->json(['message' => 'Pegawai berhasil dihapus']);
     }
+
+    // PUT: Update Data Pribadi dari Mobile
+    public function updateProfileMobile(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $id,
+            'jabatan' => 'required|string',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'message' => 'Data pribadi berhasil diperbarui',
+            'data' => $user
+        ]);
+    }
+
+
+    // PUT: Update Password dari Mobile
+    public function updatePasswordMobile(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        $user->password = Hash::make($validated['password']);
+        $user->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Password berhasil diperbarui',
+        ]);
+    }
 }

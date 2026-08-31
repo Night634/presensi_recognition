@@ -134,8 +134,8 @@ class KehadiranController extends Controller
 
         // ATURAN BATASAN WAKTU PRESENSI
         $jamBukaMasuk     = $now->copy()->setTime(6, 0, 0);
-        $batasTepatWaktu = $now->copy()->setTime(10, 30, 0);
-        $jamTutupMasuk   = $now->copy()->setTime(15, 30, 0); 
+        $batasTepatWaktu = $now->copy()->setTime(8, 0, 0);
+        $jamTutupMasuk   = $now->copy()->setTime(8, 30, 0); 
 
         $jamBukaPulang   = $now->copy()->setTime(16, 0, 0);
         $jamTutupPulang  = $now->copy()->setTime(23, 59, 59);
