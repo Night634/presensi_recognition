@@ -1,24 +1,18 @@
 import { ref } from 'vue'
 import axios from 'axios'
+import { useAdminAuth } from '../composables/useAdminAuth'
 
 // PERTAHANKAN SEMUA ENDPOINT KAMU
 const notificationEndpoints = [
-  'http://localhost:8000/api/notifications',
-  'http://localhost:8000/api/notifikasi',
+  'http://127.0.0.1:8000/api/notifications',
+  'http://127.0.0.1:8000/api/notifikasi',
   'http://127.0.0.1:8000/api/notifications',
   'http://127.0.0.1:8000/api/notifikasi',
 ]
 
 const notifications = ref([])
 
-const getAuthHeader = () => {
-  const token = sessionStorage.getItem('admin_token') || localStorage.getItem('token')
-  return {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  }
-}
+const { getAuthHeader} = useAdminAuth()
 
 const formatNotificationTime = (value) => {
   if (!value) return 'baru'

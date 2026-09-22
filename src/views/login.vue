@@ -1,165 +1,266 @@
-<script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import loginBg from '../assets/image_setneg.png'
-import logoSetneg from '../assets/logosetneg.png'
-import axios from 'axios';
-
-const router = useRouter()
-// State Form
-const username = ref('');
-const password = ref('');
-const rememberMe = ref(false);
-const isLoading = ref(false);
-const errorMessage = ref('');
-
-const handleSubmit = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    const response = await axios.post('http://127.0.0.1:8000/api/admin/login', {
-      nip: username.value,
-      password: password.value,
-    });
-
-    console.log('Login Success:', response.data);
-
-    const { user, token } = response.data.data;
-
-    // SIMPAN KE sessionStorage (Bukan localStorage)
-    sessionStorage.setItem('admin_token', token);
-    sessionStorage.setItem('admin_user', JSON.stringify(user));
-
-    // Redirect
-    router.push({ name: 'Dashboard' });
-    
-
-    // Redirect dengan error catch
-    router.push('/dashboard').then(() => {
-      console.log('Berhasil navigasi ke /dashboard');
-    }).catch(err => {
-      console.error('Gagal navigasi router:', err);
-    });
-
-  } catch (error) {
-    console.error('Login Error:', error);
-    if (error.response && error.response.data) {
-      errorMessage.value = error.response.data.message || 'Login gagal, periksa NIP dan password.';
-    } else {
-      errorMessage.value = 'Gagal terhubung ke server.';
-    }
-  } finally {
-    isLoading.value = false;
-  }
-};
-</script>
-
 <template>
-  <div class="min-h-screen bg-white flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
+  <div class="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
     
-    <!-- Outer Wrapper Canvas -->
-    <div class="relative w-full max-w-5xl flex flex-col items-center">
-      
-      <!-- HERO BANNER BACKGROUND -->
-      <div 
-        class="relative w-full h-[320px] sm:h-[380px] rounded-[32px] overflow-hidden bg-cover bg-center shadow-sm"
-        :style="{ backgroundImage: `url(${loginBg})` }"
-      >
-        <!-- Soft Overlay -->
-        <div class="absolute inset-0 bg-black/20"></div>
+    <!-- Main Outer Container / Image Card -->
+    <!-- UKURAN DIKUNCI FIX (h-[560px]) agar tidak berubah/membesar saat berpindah form -->
+    <div 
+      class="relative w-full max-w-5xl h-[560px] bg-cover bg-center rounded-2xl shadow-lg flex flex-col justify-between p-6 overflow-hidden"
+      :style="{ backgroundImage: `url(${loginBg})` }"
+    >
+      <!-- Dark Overlay Background -->
+      <div class="absolute inset-0 bg-black/40 rounded-2xl"></div>
 
-        <!-- HEADER LOGO KEMENSETNEG (Pojok Kiri Atas Banner) -->
-        <div class="absolute top-6 left-8 z-10 flex items-center space-x-3 text-white">
-          <!-- Logo Circle Container -->
-          <div class="w-11 h-11 rounded-full bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center overflow-hidden shrink-0">
-            <img :src="logoSetneg" alt="Logo Setneg" class="w-8 h-8 object-contain" />
-          </div>
-
-          <!-- Vertical Divider -->
-          <div class="h-8 w-[1px] bg-white/40"></div>
-
-          <!-- Text -->
-          <div class="leading-tight">
-            <h2 class="font-extrabold text-[11px] tracking-wider uppercase text-white">
-              Kementerian Sekretariat Negara
-            </h2>
-            <p class="text-[10px] font-semibold text-white/90 tracking-wider uppercase">
-              Republik Indonesia
-            </p>
-          </div>
+      <!-- Top Header (Logo + Text Setneg) -->
+      <div class="relative z-10 flex items-center space-x-3 text-white">
+        <img :src="logoSetneg" alt="Logo Setneg" class="h-12 w-auto bg-white/20 p-1.5 rounded-full backdrop-blur-sm" />
+        <div>
+          <h1 class="text-xs font-bold uppercase tracking-wider leading-tight">Kementerian Sekretariat Negara</h1>
+          <p class="text-[10px] font-semibold text-gray-200 uppercase tracking-widest">Republik Indonesia</p>
         </div>
       </div>
 
-      <!-- LOGIN CARD COMPONENT (Floating Overlap Banner) -->
-      <div class="relative z-20 -mt-44 sm:-mt-52 w-full max-w-[480px] bg-white rounded-2xl p-8 sm:p-10 shadow-xl border border-gray-200/80">
-        
-        <!-- Title -->
-        <h2 class="text-2xl font-bold text-center text-gray-950 mb-8">Login</h2>
-        
-        <!-- Error Message -->
-        <div v-if="errorMessage" class="p-3.5 mb-4 text-xs font-medium text-red-700 bg-red-100 rounded-lg border border-red-200">
-          {{ errorMessage }}
+      <!-- Floating Form Card Centered -->
+      <div class="absolute inset-0 flex items-center justify-center z-20 pointer-events-none p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 sm:p-8 border border-blue-100 pointer-events-auto transition-all duration-300">
+          
+          <!-- Mode Login Form -->
+          <template v-if="!isForgotPassword">
+            <h2 class="text-2xl font-bold text-center text-gray-900 mb-5">Login</h2>
+
+            <!-- Success Alert -->
+            <div v-if="successMessage" class="mb-3 bg-green-50 border-l-4 border-green-500 p-2.5 rounded text-xs text-green-700">
+              {{ successMessage }}
+            </div>
+
+            <!-- Error Alert -->
+            <div v-if="errorMessage" class="mb-3 bg-red-50 border-l-4 border-red-500 p-2.5 rounded text-xs text-red-700">
+              {{ errorMessage }}
+            </div>
+
+            <form class="space-y-3.5" @submit.prevent="handleSubmit">
+              <!-- NIP Input -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-800 mb-1">NIP</label>
+                <input 
+                  v-model="nip" 
+                  type="text" 
+                  required 
+                  placeholder="Masukkan NIP Anda" 
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none transition" 
+                />
+              </div>
+
+              <!-- Password Input -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-800 mb-1">Password</label>
+                <input 
+                  v-model="password" 
+                  type="password" 
+                  required 
+                  placeholder="Masukkan password Anda" 
+                  class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm outline-none transition" 
+                />
+              </div>
+
+              <!-- Options -->
+              <div class="flex items-center justify-between text-xs pt-1">
+                <label class="flex items-center text-gray-700 cursor-pointer">
+                  <input v-model="rememberMe" type="checkbox" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                  <span class="ml-2">Ingat saya</span>
+                </label>
+                <button type="button" @click="toggleForgotPassword(true)" class="text-blue-600 hover:underline">
+                  Lupa password?
+                </button>
+              </div>
+
+              <!-- Submit Button -->
+              <div class="pt-1">
+                <button 
+                  type="submit" 
+                  :disabled="isLoading" 
+                  class="w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md transition disabled:opacity-50"
+                >
+                  <span v-if="isLoading">Memproses...</span>
+                  <span v-else>Masuk</span>
+                </button>
+              </div>
+            </form>
+          </template>
+
+          <!-- Mode Lupa Password Form -->
+          <template v-else>
+            <h2 class="text-xl font-bold text-center text-gray-900 mb-1">Reset Password</h2>
+            <p class="text-[11px] text-gray-500 text-center mb-4">Masukkan NIP dan password baru Anda.</p>
+
+            <!-- Error Alert Reset -->
+            <div v-if="resetErrorMessage" class="mb-3 bg-red-50 border-l-4 border-red-500 p-2.5 rounded text-xs text-red-700">
+              {{ resetErrorMessage }}
+            </div>
+
+            <!-- Menggunakan spacing ringkas agar muat tanpa meluber -->
+            <form class="space-y-2.5" @submit.prevent="handleResetPassword">
+              <!-- NIP Input -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-800 mb-1">NIP</label>
+                <input 
+                  v-model="resetNip" 
+                  type="text" 
+                  required 
+                  placeholder="Masukkan NIP Anda" 
+                  class="w-full px-3 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs outline-none transition" 
+                />
+              </div>
+
+              <!-- New Password Input -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-800 mb-1">Password Baru</label>
+                <input 
+                  v-model="newPassword" 
+                  type="password" 
+                  required 
+                  placeholder="Masukkan password baru" 
+                  class="w-full px-3 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs outline-none transition" 
+                />
+              </div>
+
+              <!-- Confirm Password Input -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-800 mb-1">Konfirmasi Password Baru</label>
+                <input 
+                  v-model="confirmPassword" 
+                  type="password" 
+                  required 
+                  placeholder="Ulangi password baru" 
+                  class="w-full px-3 py-1.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs outline-none transition" 
+                />
+              </div>
+
+              <!-- Actions -->
+              <div class="pt-2 space-y-1.5">
+                <button 
+                  type="submit" 
+                  :disabled="isLoading" 
+                  class="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md transition disabled:opacity-50"
+                >
+                  <span v-if="isLoading">Memproses...</span>
+                  <span v-else>Ubah Password</span>
+                </button>
+
+                <button 
+                  type="button" 
+                  @click="toggleForgotPassword(false)"
+                  class="w-full py-1.5 px-4 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-800 transition text-center block"
+                >
+                  Kembali ke Login
+                </button>
+              </div>
+            </form>
+          </template>
+
         </div>
-
-        <!-- Form Login (Struktur HTML & Class Tailwind 100% Sama) -->
-        <form @submit.prevent="handleSubmit" class="space-y-5">
-          <!-- Input Username (diisi NIP) -->
-          <div>
-            <label class="block text-xs font-bold text-gray-800 mb-1.5">NIP</label>
-            <input
-              v-model="username"
-              type="text"
-              placeholder="Input your NIP"
-              class="w-full px-3.5 py-2.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-xs text-gray-800 placeholder-gray-400 transition"
-            />
-          </div>
-
-          <!-- Input Password -->
-          <div>
-            <label class="block text-xs font-bold text-gray-800 mb-1.5">Password</label>
-            <input
-              v-model="password"
-              type="password"
-              placeholder="Input your password"
-              class="w-full px-3.5 py-2.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-xs text-gray-800 placeholder-gray-400 transition"
-            />
-          </div>
-
-          <!-- Checkbox & Forgot Password -->
-          <div class="flex items-center justify-between text-xs pt-1">
-            <label class="flex items-center space-x-2 cursor-pointer text-gray-700 font-medium">
-              <input
-                v-model="rememberMe"
-                type="checkbox"
-                class="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span class="text-xs">Ingat saya</span>
-            </label>
-
-            <a href="#" class="text-blue-600 hover:underline font-medium text-xs">
-              Lupa password?
-            </a>
-          </div>
-
-          <!-- Submit Button -->
-          <div class="pt-3">
-            <button
-              type="submit"
-              :disabled="isLoading"
-              class="w-full bg-[#0062FF] hover:bg-blue-700 text-white font-semibold text-sm py-3 rounded-xl shadow-xs transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <svg v-if="isLoading" class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              {{ isLoading ? 'Memproses...' : 'Masuk' }}
-            </button>
-          </div>
-        </form>
-
       </div>
+
     </div>
 
   </div>
 </template>
+
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
+import loginBg from '../assets/image_setneg.png'
+import logoSetneg from '../assets/logosetneg.png'
+import { useAdminAuth } from '../composables/useAdminAuth'
+
+const router = useRouter()
+const { setAuthData } = useAdminAuth()
+
+// Login State
+const nip = ref('')
+const password = ref('')
+const rememberMe = ref(false)
+const isLoading = ref(false)
+const errorMessage = ref('')
+const successMessage = ref('')
+
+// Forgot Password State
+const isForgotPassword = ref(false)
+const resetNip = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const resetErrorMessage = ref('')
+
+// Toggle View
+const toggleForgotPassword = (show) => {
+  isForgotPassword.value = show
+  errorMessage.value = ''
+  resetErrorMessage.value = ''
+  if (!show) {
+    resetNip.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+  }
+}
+
+// Handle Admin Login
+const handleSubmit = async () => {
+  isLoading.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const response = await axios.post('http://127.0.0.1:8000/api/admin/login', {
+      nip: nip.value,
+      password: password.value,
+    })
+
+    const { user, token } = response.data.data
+    setAuthData(token, user, rememberMe.value)
+
+    router.push({ name: 'Dashboard' }).catch(() => {
+      router.push('/dashboard')
+    })
+  } catch (error) {
+    console.error('Login Error:', error)
+    if (error.response && error.response.data) {
+      errorMessage.value = error.response.data.message || 'Login gagal, periksa NIP dan password.'
+    } else {
+      errorMessage.value = 'Gagal terhubung ke server.'
+    }
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// Handle Reset Password
+const handleResetPassword = async () => {
+  if (newPassword.value !== confirmPassword.value) {
+    resetErrorMessage.value = 'Konfirmasi password baru tidak cocok.'
+    return
+  }
+
+  isLoading.value = true
+  resetErrorMessage.value = ''
+
+  try {
+    const response = await axios.post('http://127.0.0.1:8000/api/admin/reset-password', {
+      nip: resetNip.value,
+      password: newPassword.value,
+      password_confirmation: confirmPassword.value
+    })
+
+    successMessage.value = response.data.message || 'Password berhasil diperbarui, silakan login.'
+    toggleForgotPassword(false)
+  } catch (error) {
+    console.error('Reset Password Error:', error)
+    if (error.response && error.response.data) {
+      resetErrorMessage.value = error.response.data.message || 'Gagal mengubah password.'
+    } else {
+      resetErrorMessage.value = 'Gagal terhubung ke server.'
+    }
+  } finally {
+    isLoading.value = false
+  }
+}
+</script>

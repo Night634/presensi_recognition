@@ -5,17 +5,16 @@ import axios from 'axios'
 import logoSetneg from '../assets/logosetneg.png'
 import * as XLSX from 'xlsx'
 import { useNotifications } from '../composables/useNotifications'
+import { useAdminAuth } from '../composables/useAdminAuth'
 import { 
   LayoutGrid, Users, Scan, CalendarCheck, MapPin, LogOut, Bell, Search, 
   ArrowUpDown, ChevronLeft, ChevronRight, Menu, X, User, Download
 } from 'lucide-vue-next'
 
 const router = useRouter()
-const API_URL = 'http://localhost:8000/api/kehadiran'
+const API_URL = 'http://127.0.0.1:8000/api/kehadiran'
 
-const getAuthHeader = () => ({
-  headers: { Authorization: `Bearer ${sessionStorage.getItem('admin_token')}` }
-})
+const { getAuthHeader, handleLogout } = useAdminAuth()
 
 const isSidebarOpen = ref(false)
 const isNotifOpen = ref(false)
@@ -240,11 +239,6 @@ const navigateTo = (item) => {
   router.push({ name: item.route })
 }
 
-const handleLogout = () => {
-  sessionStorage.clear()
-  router.replace({ name: 'Login' })
-}
-
 onMounted(() => {
   fetchPresensi()
   fetchNotifications()
@@ -256,30 +250,73 @@ onMounted(() => {
     
     <div v-if="isSidebarOpen" @click="isSidebarOpen = false" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden"></div>
 
+    <!-- OVERLAY MOBILE -->
+    <div 
+      v-if="isSidebarOpen" 
+      @click="toggleSidebar"
+      class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
+    ></div>
+
     <!-- SIDEBAR -->
-    <aside :class="['fixed lg:static inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col justify-between z-40 transition-transform duration-300 ease-in-out shrink-0', isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0']">
+    <aside 
+      :class="[
+        'fixed lg:static inset-y-0 left-0 w-64 bg-[#0A1128] border-r border-[#131C38] flex flex-col justify-between z-50 transition-transform duration-300 ease-in-out shrink-0',
+        isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0 shadow-none'
+      ]"
+    >
       <div>
-        <div class="h-16 flex items-center justify-between px-6 border-b border-gray-100">
-          <div class="flex items-center space-x-3">
-            <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">P</div>
-            <span class="font-bold text-sm text-gray-800">Admin Portal</span>
-          </div>
-          <button @click="isSidebarOpen = false" class="lg:hidden text-gray-500"><X class="w-6 h-6" /></button>
+        <!-- HEADER LOGO SETNEG DIGITAL -->
+        <div class="pt-8 pb-6 px-6 flex flex-col items-center justify-center text-center relative border-b border-[#131C38]/50">
+          <!-- Tombol Close Mobile -->
+          <button @click="toggleSidebar" class="lg:hidden absolute top-4 right-4 text-white/70 hover:text-white transition">
+            <X class="w-5 h-5" />
+          </button>
+
+          <h1 class="font-bold text-base text-white tracking-wide">Setneg Digital</h1>
+          <p class="text-[11px] text-slate-400 font-medium tracking-wider mt-0.5">Guest Access Control</p>
         </div>
-        <nav class="mt-4 px-4 space-y-1.5">
-          <button v-for="item in navItems" :key="item.name" @click="navigateTo(item)" :class="['w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-150', activeMenu === item.name ? 'text-blue-600 bg-blue-50/60 font-semibold' : 'text-gray-600 hover:bg-gray-50']">
+
+        <!-- NAVIGATION MENU -->
+        <nav class="mt-6 px-4 space-y-2.5">
+          <button
+            v-for="item in navItems"
+            :key="item.name"
+            @click="navigateTo(item)"
+            :class="[
+              'w-full flex items-center px-5 py-3.5 rounded-2xl transition-all duration-200 text-sm font-semibold tracking-wide',
+              
+              // Style Khusus jika Menu adalah 'Scan Wajah' (Tombol Utama Biru Terang)
+              item.isSpecial 
+                ? 'bg-[#0066FF] hover:bg-[#0052CC] text-white shadow-lg shadow-blue-600/30' 
+                
+              // Style untuk Menu Aktif Biasa (Biru Gelap Solid seperti di gambar)
+                : activeMenu === item.name 
+                  ? 'bg-[#003B95] text-white shadow-md' 
+                  
+              // Style Default / Normal
+                  : 'text-slate-300 hover:text-white hover:bg-[#162248]/60'
+            ]"
+          >
             <div class="flex items-center space-x-3.5">
-              <component :is="item.icon" :class="['w-5 h-5', activeMenu === item.name ? 'text-blue-600' : 'text-gray-500']" stroke-width="2" />
-              <span class="text-sm">{{ item.name }}</span>
+              <component 
+                :is="item.icon" 
+                class="w-5 h-5 shrink-0" 
+                stroke-width="2.2"
+              />
+              <span>{{ item.name }}</span>
             </div>
-            <div v-if="activeMenu === item.name" class="w-1.5 h-6 bg-blue-600 rounded-full"></div>
           </button>
         </nav>
       </div>
-      <div class="p-4 border-t border-gray-100">
-        <button @click="handleLogout" class="flex items-center space-x-3.5 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 rounded-xl w-full transition">
-          <LogOut class="w-5 h-5" stroke-width="2" />
-          <span>Keluar</span>
+
+      <!-- FOOTER / LOGOUT -->
+      <div class="p-4 border-t border-[#131C38]/50">
+        <button 
+          @click="handleLogout" 
+          class="flex items-center space-x-3.5 px-5 py-3.5 text-sm font-semibold text-slate-300 hover:text-white hover:bg-red-500/10 hover:text-red-400 rounded-2xl w-full transition duration-150"
+        >
+          <LogOut class="w-5 h-5 shrink-0" stroke-width="2" />
+          <span>Sign Out</span>
         </button>
       </div>
     </aside>
@@ -287,17 +324,30 @@ onMounted(() => {
     <!-- MAIN CONTAINER -->
     <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
       <!-- HEADER -->
-      <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 z-30 shrink-0">
-        <div class="flex items-center space-x-3">
-          <button @click="isSidebarOpen = true" class="p-2 -ml-2 text-gray-600 lg:hidden"><Menu class="w-6 h-6" /></button>
-          <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 bg-white flex items-center justify-center">
-              <img :src="logoSetneg" alt="Logo Setneg" class="w-full h-full object-cover" />
+      <header class="h-16 flex items-center justify-between px-4 sm:px-8 z-30 shrink-0 bg-white border-b border-gray-100">
+        <div class="flex items-center space-x-3 min-w-0">
+          <!-- Button Mobile Menu -->
+          <button @click="isSidebarOpen = true" class="p-2 -ml-2 text-gray-600 lg:hidden hover:text-[#38BDF8] transition shrink-0">
+            <Menu class="w-6 h-6" />
+          </button>
+          
+          <div class="flex items-center space-x-3 min-w-0">
+            <!-- Container Logo (Tambahkan shrink-0) -->
+            <div class="w-8 h-8 rounded flex items-center justify-center shrink-0">
+              <img :src="logoSetneg" alt="Logo Setneg" class="w-full h-full object-contain" />
             </div>
-            <span class="font-bold text-xs uppercase tracking-wide text-gray-800">Kementerian Sekretariat Negara Republik Indonesia</span>
+
+            <!-- Teks Kementerian (Bisa memendek rapi dengan truncate) -->
+            <span class="font-bold text-xs uppercase tracking-wide text-gray-700 truncate">
+              Kementerian Sekretariat Negara Republik Indonesia
+            </span>
           </div>
         </div>
-        <button @click="toggleNotifications" class="p-2 text-gray-700 hover:bg-gray-100 rounded-full transition relative"><Bell class="w-6 h-6" /></button>
+
+        <!-- Button Notifikasi -->
+        <button @click="toggleNotifications" class="p-2 text-gray-600 hover:text-[#38BDF8] hover:bg-gray-100 rounded-full transition relative shrink-0 ml-2">
+          <Bell class="w-6 h-6" />
+        </button>
       </header>
 
       <!-- BODY -->

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import Cookies from 'js-cookie'
 
 const routes = [
   {
@@ -44,9 +45,9 @@ const router = createRouter({
   routes
 })
 
-// Navigation Guard menggunakan sessionStorage
+// Navigation Guard yang fleksibel (Cek Cookie ATAU sessionStorage)
 router.beforeEach((to, from, next) => {
-  const token = sessionStorage.getItem('admin_token')
+  const token = Cookies.get('admin_token') || sessionStorage.getItem('admin_token')
 
   if (to.meta.requiresAuth && !token) {
     next({ name: 'Login' })
