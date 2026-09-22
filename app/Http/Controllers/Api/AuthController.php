@@ -56,57 +56,90 @@ class AuthController extends Controller
     }
 
     // Tambahkan di bawah method login yang sudah ada
-public function adminLogin(Request $request)
-{
-    $request->validate([
-        'nip' => 'required',
-        'password' => 'required',
-    ]);
+    public function adminLogin(Request $request)
+    {
+        $request->validate([
+            'nip' => 'required',
+            'password' => 'required',
+        ]);
 
-    // 1. Cek NIP
-    $user = User::where('nip', $request->nip)->first();
-    if (!$user) {
+        // 1. Cek NIP
+        $user = User::where('nip', $request->nip)->first();
+        if (!$user) {
+            return response()->json([
+                'status' => 'error',
+                'message' => ' Username atau password yang anda masukkan salah',
+            ], 401);
+        }
+
+        // 2. Cek Password Hash
+        if (!Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Password salah/belum di-hash dengan benar.',
+            ], 401);
+        }
+
+        // 3. Cek Role Admin
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Akses ditolak! Role user ini adalah: ' . $user->role . ' (harus admin).',
+            ], 403);
+        }
+
+        // 4. Cek Status Aktif
+        if (!$user->status_aktif) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Akun status_aktif bernilai false/0.',
+            ], 403);
+        }
+
+        $token = $user->createToken('admin_token')->plainTextToken;
+
         return response()->json([
-            'status' => 'error',
-            'message' => 'NIP ' . $request->nip . ' tidak ditemukan di database.',
-        ], 401);
+            'status' => 'success',
+            'message' => 'Login Admin berhasil',
+            'data' => [
+                'user' => $user,
+                'token' => $token,
+            ]
+        ]);
     }
 
-    // 2. Cek Password Hash
-    if (!Hash::check($request->password, $user->password)) {
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'nip' => 'required',
+            'password' => 'required|min:6|confirmed', // 'confirmed' akan memvalidasi field password_confirmation
+        ]);
+
+        $user = User::where('nip', $request->nip)->first();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'NIP ' . $request->nip . ' tidak ditemukan.'
+            ], 404);
+        }
+
+        if (!$user->status_aktif) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Akun Anda tidak aktif. Silakan hubungi admin.'
+            ], 403);
+        }
+
+        // Update password baru
+        $user->password = Hash::make($request->password);
+        $user->save();
+
         return response()->json([
-            'status' => 'error',
-            'message' => 'Password salah/belum di-hash dengan benar.',
-        ], 401);
+            'status' => 'success',
+            'message' => 'Password berhasil diubah. Silakan login dengan password baru.'
+        ]);
     }
-
-    // 3. Cek Role Admin
-    if ($user->role !== 'admin') {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Akses ditolak! Role user ini adalah: ' . $user->role . ' (harus admin).',
-        ], 403);
-    }
-
-    // 4. Cek Status Aktif
-    if (!$user->status_aktif) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Akun status_aktif bernilai false/0.',
-        ], 403);
-    }
-
-    $token = $user->createToken('admin_token')->plainTextToken;
-
-    return response()->json([
-        'status' => 'success',
-        'message' => 'Login Admin berhasil',
-        'data' => [
-            'user' => $user,
-            'token' => $token,
-        ]
-    ]);
-}
 
     // API LOGOUT
     public function logout(Request $request)

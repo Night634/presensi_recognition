@@ -108,7 +108,7 @@ class UserController extends Controller
         $validated['status_aktif'] = $request->input('status_aktif', true);
         $validated['password'] = Hash::make($validated['password']);
 
-        // Jika foto dikirim dalam bentuk base64 (Dari kamera WebCam Vue)
+        // Jika ada foto dikirim dalam format Base64 (baik dari upload berkas maupun kamera)
         if ($request->filled('foto') && str_contains($request->foto, 'base64')) {
             $imageParts = explode(";base64,", $request->foto);
             $imageType = explode("image/", $imageParts[0])[1] ?? 'png';
@@ -125,11 +125,10 @@ class UserController extends Controller
 
             if (!$embedding) {
                 return response()->json([
-                    'message' => 'Wajah tidak terdeteksi pada foto atau Server AI Colab offline! Harap ambil ulang foto.'
+                    'message' => 'Wajah tidak terdeteksi pada foto atau Server AI Colab offline! Harap pilih/ambil ulang foto yang lebih jelas.'
                 ], 422);
             }
 
-            // 3. Pastikan di-encode ke JSON String secara pasti
             $validated['face_embedding'] = is_string($embedding) ? $embedding : json_encode($embedding);
         }
 

@@ -9,11 +9,18 @@ class LokasiKantor extends Model
     protected $table = 'lokasi_kantor';
     
     protected $fillable = [
+        'tipe',
         'nama_gedung',
-        'coordinates'
+        'coordinates',
+        'latitude',
+        'longitude',
+        'radius_meter'
     ];
 
     protected $casts = [
         'coordinates' => 'array',
+        'latitude' => 'float',
+        'longitude' => 'float',
+        'radius_meter' => 'integer',
     ];
 }
