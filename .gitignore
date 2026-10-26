@@ -25,3 +25,5 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/ai_engine/.venv/
+/ai_engine/model/

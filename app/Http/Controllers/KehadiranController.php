@@ -9,10 +9,24 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class KehadiranController extends Controller
 {
+    public function faceLandmarkerChallenge(Request $request)
+    {
+        $sequence = random_int(0, 1) === 0 ? ['LEFT', 'RIGHT'] : ['RIGHT', 'LEFT'];
+        $expiresAt = now()->addMinutes(2)->timestamp;
+        $token = Crypt::encryptString(json_encode([
+            'user_id' => $request->user()->id,
+            'sequence' => $sequence,
+            'expires_at' => $expiresAt,
+        ]));
+        return response()->json(['sequence' => $sequence, 'challenge_token' => $token, 'expires_at' => $expiresAt]);
+    }
+
     private function getNamaGedungByCoords($lat, $lng, $semuaLokasi)
     {
         if (!$lat || !$lng) return '-';
@@ -114,7 +128,7 @@ class KehadiranController extends Controller
         ]);
     }
 
-    // POST: Endpoint presensi AI dari Flutter (/api/presensi)
+    // POST: Endpoint presensi AI lama dari Flutter (/api/presensi)
     public function store(Request $request)
     {
         // 1. Dapatkan nama field file foto dari Flutter
@@ -124,9 +138,49 @@ class KehadiranController extends Controller
             $photoField => 'required|image|mimes:jpeg,png,jpg|max:5000',
             'latitude'  => 'required',
             'longitude' => 'required',
+            'video' => 'required|file|max:25000|mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm',
+            'challenge_token' => 'required|string|max:2048',
         ]);
 
-        $user  = $request->user();
+        $user = $request->user();
+        try {
+            $challenge = json_decode(Crypt::decryptString($request->input('challenge_token')), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            return response()->json(['status' => 'error', 'message' => 'Challenge wajah tidak valid. Silakan ulangi.'], 422);
+        }
+        $sequence = $challenge['sequence'] ?? null;
+        if (($challenge['user_id'] ?? null) !== $user->id
+            || ($challenge['expires_at'] ?? 0) < now()->timestamp
+            || !in_array($sequence, [['LEFT', 'RIGHT'], ['RIGHT', 'LEFT']], true)) {
+            return response()->json(['status' => 'error', 'message' => 'Challenge wajah kedaluwarsa atau tidak valid.'], 422);
+        }
+        $challengeKey = 'face-landmarker:' . hash('sha256', $request->input('challenge_token'));
+        if (!Cache::add($challengeKey, true, now()->addMinutes(2))) {
+            return response()->json(['status' => 'error', 'message' => 'Challenge ini sudah dipakai. Ulangi presensi.'], 422);
+        }
+
+        $aiUrl = config('services.colab.url') ?? env('COLAB_URL');
+        if (!$aiUrl) {
+            return response()->json(['status' => 'error', 'message' => 'AI_ENGINE_URL belum disetel.'], 500);
+        }
+        try {
+            $video = $request->file('video');
+            $landmarkResponse = Http::timeout(120)->acceptJson()
+                ->attach('file', file_get_contents($video->getRealPath()), $video->getClientOriginalName() ?: 'presensi.mp4')
+                ->attach('challenge', implode(',', $sequence))
+                ->post(rtrim($aiUrl, '/') . '/check-face-landmarker');
+            if (!$landmarkResponse->successful() || $landmarkResponse->json('passed') !== true) {
+                Log::warning('FaceLandmarker rejected attendance clip: ' . $landmarkResponse->body());
+                return response()->json([
+                    'status' => 'error', 'code' => 'face_turn_not_detected',
+                    'message' => 'Hadapkan wajah ke kiri dan kanan sesuai instruksi, lalu coba lagi.',
+                ], $landmarkResponse->successful() || $landmarkResponse->status() === 422 ? 422 : 502);
+            }
+        } catch (\Throwable $e) {
+            Log::error('FaceLandmarker request failed: ' . $e->getMessage());
+            return response()->json(['status' => 'error', 'message' => 'FaceLandmarker tidak dapat dihubungi.'], 502);
+        }
+
         
         // --- PERBAIKAN 1: SET TIMEZONE SECARA EKSPLISIT KE WIB (Asia/Jakarta) ---
         $now   = Carbon::now('Asia/Jakarta');
@@ -135,9 +189,9 @@ class KehadiranController extends Controller
         // ATURAN BATASAN WAKTU PRESENSI
         $jamBukaMasuk     = $now->copy()->setTime(6, 0, 0);
         $batasTepatWaktu = $now->copy()->setTime(8, 0, 0);
-        $jamTutupMasuk   = $now->copy()->setTime(8, 30, 0); 
+        $jamTutupMasuk   = $now->copy()->setTime(16, 30, 0); 
 
-        $jamBukaPulang   = $now->copy()->setTime(16, 0, 0);
+        $jamBukaPulang   = $now->copy()->setTime(17, 0, 0);
         $jamTutupPulang  = $now->copy()->setTime(23, 59, 59);
 
         // --- PERBAIKAN 2: QUERY PRESENSI HARI INI YANG LEBIH PRESISI ---

@@ -36,7 +36,8 @@ return [
     ],
 
     'colab' => [
-    'url' => env('COLAB_AI_URL'),
+        // Keep legacy variable names working while allowing a local AI engine.
+        'url' => env('AI_ENGINE_URL', env('COLAB_AI_URL', env('COLAB_URL'))),
     ],
 
 ];

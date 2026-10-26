@@ -26,6 +26,7 @@ class User extends Authenticatable
         'role',
         'jabatan',
         'status_aktif',
+        'status_pendaftaran',
         'foto',
         'face_embedding', // <-- Tambahkan ini
     ];
@@ -38,6 +39,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'face_embedding',
     ];
 
     /**

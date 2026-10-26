@@ -18,8 +18,11 @@ Route::middleware('auth:sanctum')->get('/kehadiran', [KehadiranController::class
 // 1. PUBLIC ROUTE (Bisa diakses tanpa token/login)
 // ==============================================================================
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [UserController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/admin/login', [AuthController::class, 'adminLogin']);
-Route::post('/admin/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
+Route::post('/reset-password', [AuthController::class, 'completePasswordReset'])->middleware('throttle:8,1');
+Route::post('/admin/reset-password', [AuthController::class, 'resetPassword'])->middleware('auth:sanctum');
 
 
 // ==============================================================================
@@ -33,9 +36,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/admin/logout', [AuthController::class, 'logout']);
 
     // --- Presensi & Lokasi Kantor ---
-    Route::get('/office-location', [LokasiKantorController::class, 'getOfficeLocation']);
+    // The mobile client expects the saved office polygons, matching /api/lokasi.
+    Route::get('/office-location', [LokasiKantorController::class, 'index']);
     Route::get('/presensi/hari-ini', [KehadiranController::class, 'checkHariIni']);
     Route::post('/presensi', [KehadiranController::class, 'store']);
+    Route::get('/presensi/face-landmarker-challenge', [KehadiranController::class, 'faceLandmarkerChallenge']);
+    Route::patch('/users/{id}/registration-status', [UserController::class, 'updateRegistrationStatus']);
 
     // --- Pengajuan Izin / Cuti ---
     Route::get('/pengajuan', [PengajuanController::class, 'index']);
