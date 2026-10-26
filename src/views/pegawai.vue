@@ -144,6 +144,26 @@ const handleDelete = async (id) => {
   }
 }
 
+const setRegistrationStatus = async (pegawai, status_pendaftaran) => {
+  const action = status_pendaftaran === 'approved' ? 'menyetujui' : 'menolak'
+  if (!confirm(`Yakin ${action} pendaftaran ${pegawai.name}?`)) return
+  try {
+    const res = await axios.patch(
+      `${API_URL}/${pegawai.id}/registration-status`,
+      { status_pendaftaran },
+      getAuthHeader()
+    )
+    await fetchPegawai()
+    if (status_pendaftaran === 'approved') {
+      alert(res.data?.email_sent
+        ? 'Pendaftaran disetujui dan email aktivasi terkirim.'
+        : 'Pendaftaran disetujui, tetapi email gagal terkirim. Periksa konfigurasi SMTP backend.')
+    }
+  } catch (error) {
+    alert(error.response?.data?.message || 'Gagal memperbarui status pendaftaran.')
+  }
+}
+
 // ===== NAVIGASI PAGE & FORM HANDLER =====
 
 const openFormPage = (item = null) => {
@@ -462,7 +482,7 @@ onUnmounted(() => {
           <!-- TABLE DATA PEGAWAI -->
           <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse min-w-[650px]">
+              <table class="w-full text-left border-collapse min-w-[780px]">
                 <thead>
                   <tr class="border-b border-gray-100 text-xs font-bold text-gray-800 bg-gray-50/50">
                     <th class="py-4 px-6 text-center w-16">No</th>
@@ -470,6 +490,7 @@ onUnmounted(() => {
                     <th class="py-4 px-6">Nama</th>
                     <th class="py-4 px-6">NIP</th>
                     <th class="py-4 px-6">Jabatan / Status</th>
+                    <th class="py-4 px-6 text-center">Status Pendaftaran</th>
                     <th class="py-4 px-6 text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -506,8 +527,21 @@ onUnmounted(() => {
                         </span>
                       </div>
                     </td>
+                    <td class="py-4 px-6 text-center">
+                      <span :class="[
+                        'px-2 py-1 rounded-md text-[10px] font-bold uppercase',
+                        pegawai.status_pendaftaran === 'pending' ? 'bg-amber-100 text-amber-700' :
+                          pegawai.status_pendaftaran === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                      ]">
+                        {{ pegawai.status_pendaftaran || 'approved' }}
+                      </span>
+                    </td>
                     <td class="py-4 px-6">
                       <div class="flex items-center justify-center space-x-2">
+                        <template v-if="pegawai.status_pendaftaran === 'pending'">
+                          <button @click="setRegistrationStatus(pegawai, 'approved')" class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition">Setujui</button>
+                          <button @click="setRegistrationStatus(pegawai, 'rejected')" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition">Tolak</button>
+                        </template>
                         <button 
                           @click="openFormPage(pegawai)"
                           class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
@@ -525,7 +559,7 @@ onUnmounted(() => {
                   </tr>
 
                   <tr v-if="paginatedPegawai.length === 0">
-                    <td colspan="6" class="py-8 text-center text-gray-400 text-sm">
+                    <td colspan="7" class="py-8 text-center text-gray-400 text-sm">
                       {{ isLoading ? 'Memuat data pegawai...' : 'Tidak ada data pegawai yang ditemukan.' }}
                     </td>
                   </tr>
